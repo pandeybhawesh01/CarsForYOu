@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../constants/colors';
 import { typography } from '../../constants/typography';
-import { spacing, verticalSpacing, iconSize } from '../../constants/spacing';
+import { spacing } from '../../constants/spacing';
 import { hs, vs } from '../../utils/scaling';
 
 interface AppHeaderProps {
@@ -36,6 +36,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const isPrimary = variant === 'primary';
+  const hasSubtitle = Boolean(subtitle);
+  const topPadding = insets.top + (hasSubtitle ? vs(8) : vs(4));
+  const bottomPadding = hasSubtitle ? vs(10) : vs(8);
 
   const handleBack = useCallback(() => {
     onBack?.();
@@ -51,7 +54,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
         style={[
           styles.container,
           isPrimary ? styles.containerPrimary : styles.containerWhite,
-          { paddingTop: insets.top + vs(12) },
+          { paddingTop: topPadding, paddingBottom: bottomPadding },
           style,
         ]}>
         <View style={styles.row}>
@@ -98,7 +101,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: spacing.base,
-    paddingBottom: vs(12),
   },
   containerPrimary: {
     backgroundColor: colors.primary,
@@ -114,7 +116,8 @@ const styles = StyleSheet.create({
   },
   backButton: {
     marginRight: spacing.sm,
-    padding: spacing.xs,
+    paddingVertical: vs(2),
+    paddingHorizontal: spacing.xs,
   },
   backArrow: {
     fontSize: typography.fontSize.xl,
@@ -147,7 +150,7 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
   },
   placeholder: {
-    width: hs(36),
+    width: hs(32),
   },
 });
 

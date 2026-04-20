@@ -64,7 +64,7 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
   const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
   const data = currentSession?.formData.engine ?? {};
   const mediaData = currentSession?.formData.media ?? { additionalImages: [] };
-  const [tab, setTab] = useState<'engineImage' | 'roadTest' | 'soundTest' | 'engine'>('engineImage');
+  const [tab, setTab] = useState<'engineImage' | 'roadTest' | 'engineSound' | 'engine'>('engineImage');
   const [engineImageMode, setEngineImageMode] = useState<EngineImageMode>('list');
 
   useEffect(() => {
@@ -242,7 +242,7 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
       <Text style={[styles.tab, tab === 'roadTest' && styles.tabActive]} onPress={() => setTab('roadTest')}>
         Road Test
       </Text>
-      <Text style={[styles.tab, tab === 'soundTest' && styles.tabActive]} onPress={() => setTab('soundTest')}>
+      <Text style={[styles.tab, tab === 'engineSound' && styles.tabActive]} onPress={() => setTab('engineSound')}>
         Engine Sound
       </Text>
       <Text style={[styles.tab, tab === 'engine' && styles.tabActive]} onPress={() => setTab('engine')}>
@@ -315,7 +315,7 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
           </View>
         )}
 
-        {tab === 'soundTest' && (
+        {tab === 'engineSound' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Engine Sound Test</Text>
             <YesNoSelector

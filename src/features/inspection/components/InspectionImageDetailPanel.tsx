@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PhotoIssueInspectionBlock } from '../types';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
@@ -13,6 +14,7 @@ import { spacing, borderRadius } from '../../../constants/spacing';
 import { hs, vs } from '../../../utils/scaling';
 import PhotoCapture from './PhotoCapture';
 import AppButton from '../../../components/AppButton';
+import AppHeader from '../../../components/AppHeader';
 import { PHOTO_STATUS_ATTENTION, PHOTO_STATUS_GOOD } from '../utils/photoInspection';
 
 const STATUS_OPTIONS = [
@@ -35,8 +37,6 @@ interface Props {
   listBackTitle?: string;
   /** Optional content below the photo (e.g. chassis number) before the submit bar. */
   extraBottom?: ReactNode;
-  /** When the screen already has an `AppHeader`, hide the panel's back row. */
-  hideBackRow?: boolean;
 }
 
 const InspectionImageDetailPanel: React.FC<Props> = ({
@@ -50,7 +50,6 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
   layout,
   listBackTitle = 'Exterior + Tyres',
   extraBottom,
-  hideBackRow = false,
 }) => {
   const [draft, setDraft] = useState<PhotoIssueInspectionBlock>(() => value ?? {});
 
@@ -158,124 +157,99 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
   if (layout === 'coolant') {
     const coolantIssues = value?.issues ?? [];
     return (
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
-        {!hideBackRow && (
-          <TouchableOpacity onPress={onBack} style={styles.backRow} hitSlop={12} accessibilityRole="button">
-            <Text style={styles.backChevron}>‹</Text>
-            <Text style={styles.backLabel}>Engine components</Text>
-          </TouchableOpacity>
-        )}
+      <SafeAreaView style={styles.container} edges={['bottom']}>
+        <AppHeader
+          title={title}
+          subtitle={subtitle}
+          onBack={onBack}
+          variant="white"
+        />
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled">
 
-        <Text style={styles.title}>{title}</Text>
-        {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+          <Text style={styles.sectionLabel}>Status</Text>
+          <View style={styles.statusRow}>
+            {STATUS_OPTIONS.map((opt) => {
+              const active = status === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.statusChip, active && styles.statusChipActive]}
+                  onPress={() => setStatusCoolant(opt.value)}
+                  activeOpacity={0.85}>
+                  <Text style={[styles.statusChipText, active && styles.statusChipTextActive]}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-        <Text style={styles.sectionLabel}>Status</Text>
-        <View style={styles.statusRow}>
-          {STATUS_OPTIONS.map((opt) => {
-            const active = status === opt.value;
-            return (
-              <TouchableOpacity
-                key={opt.value}
-                style={[styles.statusChip, active && styles.statusChipActive]}
-                onPress={() => setStatusCoolant(opt.value)}
-                activeOpacity={0.85}>
-                <Text style={[styles.statusChipText, active && styles.statusChipTextActive]}>{opt.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+          <Text style={styles.sectionLabel}>Issues</Text>
+          <Text style={styles.hint}>Select all that apply (matches inspection schema).</Text>
+          {renderIssueChips([...issueOptions], coolantIssues)}
 
-        <Text style={styles.sectionLabel}>Issues</Text>
-        <Text style={styles.hint}>Select all that apply (matches inspection schema).</Text>
-        {renderIssueChips([...issueOptions], coolantIssues)}
-
-        <PhotoCapture label={photoLabel} imageUri={value?.photos?.[0]} onCapture={onPhoto} />
-      </ScrollView>
+          <PhotoCapture label={photoLabel} imageUri={value?.photos?.[0]} onCapture={onPhoto} />
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled">
-      {!hideBackRow && (
-        <TouchableOpacity onPress={onBack} style={styles.backRow} hitSlop={12} accessibilityRole="button">
-          <Text style={styles.backChevron}>‹</Text>
-          <Text style={styles.backLabel}>{listBackTitle}</Text>
-        </TouchableOpacity>
-      )}
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <AppHeader
+        title={title}
+        subtitle={subtitle}
+        onBack={onBack}
+        variant="primary"
+      />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
 
-      {!hideBackRow ? <Text style={styles.title}>{title}</Text> : null}
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        <PhotoCapture label={photoLabel} imageUri={primaryPhoto} onCapture={onPhoto} />
 
-      <PhotoCapture label={photoLabel} imageUri={primaryPhoto} onCapture={onPhoto} />
-
-      {issueOptions.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>Please select issue(s) if any</Text>
-          {renderIssueChips([...issueOptions], issues)}
-        </>
-      )}
-
-      {extraBottom}
-
-      <View style={styles.submitBar}>
-        {issueOptions.length > 0 ? (
-          <TouchableOpacity onPress={pressAllOk} style={styles.allOkBtn} accessibilityRole="button">
-            <Text style={styles.allOkText}>All OK</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.allOkBtn} />
+        {issueOptions.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>Please select issue(s) if any</Text>
+            {renderIssueChips([...issueOptions], issues)}
+          </>
         )}
-        <View style={styles.submitBtnWrap}>
-          <AppButton
-            label="Submit"
-            onPress={handleSubmit}
-            isDisabled={!canSubmitPhotoFirst}
-            testID="inspection-photo-submit"
-          />
+
+        {extraBottom}
+
+        <View style={styles.submitBar}>
+          {issueOptions.length > 0 ? (
+            <TouchableOpacity onPress={pressAllOk} style={styles.allOkBtn} accessibilityRole="button">
+              <Text style={styles.allOkText}>All OK</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.allOkBtn} />
+          )}
+          <View style={styles.submitBtnWrap}>
+            <AppButton
+              label="Submit"
+              onPress={handleSubmit}
+              isDisabled={!canSubmitPhotoFirst}
+              testID="inspection-photo-submit"
+            />
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   scrollContent: {
     paddingHorizontal: spacing.base,
-    paddingTop: vs(8),
+    paddingTop: vs(16),
     paddingBottom: vs(32),
-  },
-  backRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: vs(12),
-  },
-  backChevron: {
-    fontSize: typography.fontSize.xl,
-    color: colors.primary,
-    fontWeight: typography.fontWeight.bold,
-    marginRight: hs(4),
-  },
-  backLabel: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary,
-    fontWeight: typography.fontWeight.semiBold,
-  },
-  title: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.text,
-    marginBottom: vs(4),
-  },
-  subtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.textSecondary,
-    marginBottom: vs(16),
   },
   sectionLabel: {
     fontSize: typography.fontSize.xs,
@@ -283,8 +257,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: vs(8),
-    marginTop: vs(4),
+    marginBottom: vs(12),
+    marginTop: vs(20),
   },
   hint: {
     fontSize: typography.fontSize.xs,
@@ -294,11 +268,11 @@ const styles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     gap: spacing.sm,
-    marginBottom: vs(20),
+    marginBottom: vs(24),
   },
   statusChip: {
     flex: 1,
-    paddingVertical: vs(12),
+    paddingVertical: vs(14),
     borderRadius: borderRadius.md,
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -321,11 +295,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
-    marginBottom: vs(16),
+    marginBottom: vs(20),
   },
   issueChip: {
-    paddingVertical: vs(8),
-    paddingHorizontal: hs(12),
+    paddingVertical: vs(10),
+    paddingHorizontal: hs(14),
     borderRadius: borderRadius.full,
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -347,14 +321,19 @@ const styles = StyleSheet.create({
   submitBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: vs(20),
-    marginBottom: vs(24),
-    gap: spacing.sm,
+    marginTop: vs(24),
+    marginBottom: vs(8),
+    gap: spacing.base,
+    paddingHorizontal: spacing.xs,
   },
   allOkBtn: {
     flex: 1,
-    paddingVertical: vs(12),
+    paddingVertical: vs(14),
     justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
   },
   allOkText: {
     fontSize: typography.fontSize.base,
@@ -362,7 +341,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semiBold,
   },
   submitBtnWrap: {
-    flex: 1.4,
+    flex: 1.3,
   },
 });
 
