@@ -37,7 +37,19 @@ export const DOCUMENT_PHOTO_ISSUE_OPTIONS = [
   'Mismatch with vehicle',
 ] as const;
 
-export const AC_PANEL_ISSUE_OPTIONS = ['Not cooling', 'Controls faulty', 'Display issue', 'Odour'] as const;
+  export const AC_PANEL_ISSUE_OPTIONS = ['Not cooling', 'Controls faulty', 'Display issue', 'Odour'] as const;
+
+  export const AC_COOLING_ISSUE_OPTIONS = ['Inactive - 12°C to 18°C', 'Not working 18°C and above', 'Not available'] as const;
+
+  export const HEATER_SYSTEM_ISSUE_OPTIONS = ['Not working'] as const;
+
+  export const AC_CONTROL_PANEL_ISSUE_OPTIONS = ['AC Panel broken / Crack', 'AC Panel display not working'] as const;
+
+  export const BLOWER_MOTOR_ISSUE_OPTIONS = ['Blower Motor noisy', 'Blower Motor not working'] as const;
+
+  export const AC_COMPRESSOR_ISSUE_OPTIONS = ['AC Compressor not working', 'Compressor noise'] as const;
+
+  export const VENTILATION_SYSTEM_ISSUE_OPTIONS = ['Air flow weak', 'Not working', 'Odour present'] as const;
 
 export type ExteriorTyreTabId = 'front' | 'left' | 'rear' | 'right';
 

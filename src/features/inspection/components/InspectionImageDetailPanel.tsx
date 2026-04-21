@@ -32,6 +32,7 @@ interface Props {
   onChange: (next: PhotoIssueInspectionBlock) => void;
   onBack: () => void;
   photoLabel?: string;
+  photoRequired?: boolean;
   layout: InspectionImageDetailLayout;
   /** Shown on the back row for `photoFirstSubmit` (e.g. Car Details, Engine components). */
   listBackTitle?: string;
@@ -47,6 +48,7 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
   onChange,
   onBack,
   photoLabel = 'Photo',
+  photoRequired = true,
   layout,
   listBackTitle = 'Exterior + Tyres',
   extraBottom,
@@ -112,7 +114,7 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
   }, []);
 
   const canSubmitPhotoFirst = (() => {
-    if (!primaryPhoto) {
+    if (!primaryPhoto && photoRequired) {
       return false;
     }
     if (issueOptions.length === 0) {

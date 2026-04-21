@@ -141,6 +141,25 @@ export interface InteriorData {
   notes?: string;
 }
 
+  export interface ACData {
+    [key: string]: YesNoNA | Condition | string | PhotoIssueInspectionBlock | undefined;
+    climateControlAvailable?: YesNoNA;
+    climateControlInspection?: PhotoIssueInspectionBlock;
+    acCoolingStatus?: string;
+    acCoolingInspection?: PhotoIssueInspectionBlock;
+    heaterSystemStatus?: PhotoIssueInspectionBlock;
+    acPanelInspection?: PhotoIssueInspectionBlock;
+    blowerMotorInspection?: PhotoIssueInspectionBlock;
+    acCompressorInspection?: PhotoIssueInspectionBlock;
+    ventilationSystemInspection?: PhotoIssueInspectionBlock;
+    acCoolingAtIdle?: YesNoNA;
+    acCoolingAt2000Rpm?: YesNoNA;
+    acCompressor?: Condition;
+    acCondenser?: Condition;
+    acBlower?: Condition;
+    acFoulSmell?: YesNoNA;
+  }
+
 /**
  * Shared shape for coolant, exterior + tyres parts, engine component photos, and document captures.
  * URIs are placeholders until a real image picker is wired.
@@ -222,6 +241,7 @@ export interface InspectionFormData {
   engine: Partial<EngineData>;
   documents: Partial<DocumentsData>;
   media: Partial<MediaData>;
+    ac: Partial<ACData>;
 }
 
 export interface InspectionStep {

@@ -135,64 +135,56 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
   const renderEngineImageTab = () => {
     if (engineImageMode === 'coolant') {
       return (
-        <View style={styles.section}>
-          <CoolantInspectionPanel
-            value={data.coolant}
-            onChange={(coolant) => updateFormData(InspectionStepId.Engine, { coolant })}
-            onBack={() => setEngineImageMode('list')}
-          />
-        </View>
+        <CoolantInspectionPanel
+          value={data.coolant}
+          onChange={(coolant) => updateFormData(InspectionStepId.Engine, { coolant })}
+          onBack={() => setEngineImageMode('list')}
+        />
       );
     }
 
     if (engineImageMode === 'battery') {
       return (
-        <View style={styles.section}>
-          <InspectionImageDetailPanel
-            title="Battery & Alternator"
-            listBackTitle="Engine components"
-            issueOptions={ENGINE_COMPONENT_ISSUE_OPTIONS}
-            value={enginePhotos.battery}
-            onChange={(b) => updateEnginePhoto('battery', b)}
-            onBack={() => setEngineImageMode('list')}
-            layout="photoFirstSubmit"
-            photoLabel="Photo"
-          />
-        </View>
+        <InspectionImageDetailPanel
+          title="Battery & Alternator"
+          listBackTitle="Engine components"
+          issueOptions={ENGINE_COMPONENT_ISSUE_OPTIONS}
+          value={enginePhotos.battery}
+          onChange={(b) => updateEnginePhoto('battery', b)}
+          onBack={() => setEngineImageMode('list')}
+          layout="photoFirstSubmit"
+          photoLabel="Photo"
+        />
       );
     }
 
     if (engineImageMode === 'dipstick') {
       return (
-        <View style={styles.section}>
-          <InspectionImageDetailPanel
-            title="Engine oil dipstick"
-            listBackTitle="Engine components"
-            issueOptions={ENGINE_COMPONENT_ISSUE_OPTIONS}
-            value={enginePhotos.dipstick}
-            onChange={(b) => updateEnginePhoto('dipstick', b)}
-            onBack={() => setEngineImageMode('list')}
-            layout="photoFirstSubmit"
-            photoLabel="Photo"
-          />
-        </View>
+        <InspectionImageDetailPanel
+          title="Engine oil dipstick"
+          listBackTitle="Engine components"
+          issueOptions={ENGINE_COMPONENT_ISSUE_OPTIONS}
+          value={enginePhotos.dipstick}
+          onChange={(b) => updateEnginePhoto('dipstick', b)}
+          onBack={() => setEngineImageMode('list')}
+          layout="photoFirstSubmit"
+          photoLabel="Photo"
+        />
       );
     }
 
     if (engineImageMode === 'sump') {
       return (
-        <View style={styles.section}>
-          <InspectionImageDetailPanel
-            title="Sump"
-            listBackTitle="Engine components"
-            issueOptions={ENGINE_COMPONENT_ISSUE_OPTIONS}
-            value={enginePhotos.sump}
-            onChange={(b) => updateEnginePhoto('sump', b)}
-            onBack={() => setEngineImageMode('list')}
-            layout="photoFirstSubmit"
-            photoLabel="Photo"
-          />
-        </View>
+        <InspectionImageDetailPanel
+          title="Sump"
+          listBackTitle="Engine components"
+          issueOptions={ENGINE_COMPONENT_ISSUE_OPTIONS}
+          value={enginePhotos.sump}
+          onChange={(b) => updateEnginePhoto('sump', b)}
+          onBack={() => setEngineImageMode('list')}
+          layout="photoFirstSubmit"
+          photoLabel="Photo"
+        />
       );
     }
 
@@ -233,6 +225,7 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
 
   const showTabs = tab === 'engineImage' ? engineImageMode === 'list' : true;
   const engineDetailOpen = tab === 'engineImage' && engineImageMode !== 'list';
+  const showParentHeader = !engineDetailOpen || engineImageMode === 'chassis';
 
   const tabRow = showTabs ? (
     <View style={styles.tabRow}>
@@ -253,10 +246,9 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-      <AppHeader title="Engine + Transmission" subtitle="Step 2 of 6" onBack={onBack} />
+      {showParentHeader && <AppHeader title="Engine + Transmission" subtitle="Step 2 of 6" onBack={onBack} />}
       {engineDetailOpen ? (
         <View style={styles.detailFill}>
-          {tabRow}
           {renderEngineImageTab()}
         </View>
       ) : (
@@ -387,7 +379,7 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  detailFill: { flex: 1, paddingHorizontal: spacing.base, paddingTop: vs(8) },
+  detailFill: { flex: 1 },
   content: { padding: spacing.base, paddingBottom: vs(20) },
   section: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.base, marginBottom: vs(16) },
   sectionTitle: {

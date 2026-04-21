@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Image,
   Alert,
 } from 'react-native';
 import { colors } from '../../../constants/colors';
@@ -48,6 +49,8 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
     onCapture('');
   }, [onCapture]);
 
+  const showImage = Boolean(imageUri && /^(https?:|file:|content:)/i.test(imageUri));
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -58,10 +61,14 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
 
       {imageUri ? (
         <View style={styles.previewContainer}>
-          <View style={styles.imagePlaceholder}>
-            <Text style={styles.imagePlaceholderText}>📷</Text>
-            <Text style={styles.imagePlaceholderSubtext}>Photo Captured</Text>
-          </View>
+          {showImage ? (
+            <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <Text style={styles.imagePlaceholderText}>📷</Text>
+              <Text style={styles.imagePlaceholderSubtext}>Photo Captured</Text>
+            </View>
+          )}
           <TouchableOpacity onPress={handleEdit} style={styles.editRow}>
             <Text style={styles.editText}>↻ Edit</Text>
           </TouchableOpacity>
@@ -131,6 +138,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSecondary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  imagePreview: {
+    height: vs(160),
+    width: '100%',
+    backgroundColor: colors.surfaceSecondary,
   },
   imagePlaceholderText: {
     fontSize: 40,
