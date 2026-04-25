@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { ScrollView, View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useInspectionStore } from '../../store/inspectionStore';
@@ -14,7 +14,7 @@ import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
 import { colors } from '../../../../constants/colors';
 import { typography } from '../../../../constants/typography';
-import { spacing, borderRadius } from '../../../../constants/spacing';
+import { spacing, borderRadius, verticalSpacing } from '../../../../constants/spacing';
 import { vs, hs } from '../../../../utils/scaling';
 import {
   AC_COOLING_ISSUE_OPTIONS,
@@ -25,6 +25,7 @@ import {
   VENTILATION_SYSTEM_ISSUE_OPTIONS,
 } from '../../../../constants/inspectionSchema';
 import { isPhotoIssueBlockComplete } from '../../utils/photoInspection';
+import { useCatalogViewModel, selectCatalog } from '../../../../viewmodels/catalogViewModel';
 
 interface Props {
   onNext: () => void;
@@ -47,6 +48,12 @@ interface ACComponent {
   isRequired: boolean;
 }
 
+interface StatusBadge {
+  status: string;
+  bgColor: string;
+  textColor: string;
+}
+
 const AC_COMPONENTS: ACComponent[] = [
   { id: 'climateControl', title: 'Climate Control', subtitle: 'is available', isRequired: true },
   { id: 'ventilation', title: 'Ventilation System', subtitle: 'Check for issues', isRequired: false },
@@ -57,15 +64,20 @@ const AC_COMPONENTS: ACComponent[] = [
   { id: 'heaterSystem', title: 'Heater System', subtitle: 'Check functionality', isRequired: false },
 ];
 
+const EDIT_HIT_SLOP = { top: 10, bottom: 10, left: 8, right: 8 } as const;
+
 const isValidImageUri = (uri?: string) => Boolean(uri && /^(https?:|file:|content:)/i.test(uri));
 
-const getStatusBadge = (component: ACComponent, data: Partial<ACData>): { status: string; color: string } => {
+const getStatusBadge = (component: ACComponent, data: Partial<ACData>): StatusBadge => {
+  const empty: StatusBadge = { status: '', bgColor: colors.borderLight, textColor: colors.textSecondary };
+
   if (component.id === 'climateControl') {
     const value = data.climateControlAvailable;
-    if (!value) return { status: '', color: colors.borderLight };
-    if (value === 'YES' || value === 'WORKING') return { status: 'ALL OK', color: colors.success };
-    if (value === 'NO' || value === 'NOT_WORKING') return { status: 'ISSUE SUBMITTED', color: colors.warning };
-    return { status: 'ISSUE SUBMITTED', color: colors.warning };
+    if (!value) return empty;
+    if (value === 'YES' || value === 'WORKING') {
+      return { status: 'ALL OK', bgColor: colors.successLight, textColor: colors.success };
+    }
+    return { status: 'ISSUE SUBMITTED', bgColor: colors.warningLight, textColor: colors.warning };
   }
 
   const blockMap: Partial<Record<ACComponentType, PhotoIssueInspectionBlock | undefined>> = {
@@ -77,10 +89,14 @@ const getStatusBadge = (component: ACComponent, data: Partial<ACData>): { status
     heaterSystem: data.heaterSystemStatus,
   };
   const value = blockMap[component.id];
-  if (!value) return { status: '', color: colors.borderLight };
-  if (value.issues?.length) return { status: 'ISSUE SUBMITTED', color: colors.warning };
-  if (value.status || value.photos?.length) return { status: 'ALL OK', color: colors.success };
-  return { status: '', color: colors.borderLight };
+  if (!value) return empty;
+  if (value.issues?.length) {
+    return { status: 'ISSUE SUBMITTED', bgColor: colors.warningLight, textColor: colors.warning };
+  }
+  if (value.status || value.photos?.length) {
+    return { status: 'ALL OK', bgColor: colors.successLight, textColor: colors.success };
+  }
+  return empty;
 };
 
 const getPreviewUri = (component: ACComponentType, data: Partial<ACData>): string | undefined => {
@@ -93,10 +109,25 @@ const getPreviewUri = (component: ACComponentType, data: Partial<ACData>): strin
   return data.ventilationSystemInspection?.photos?.[0];
 };
 
+const countInspected = (data: Partial<ACData>): number => {
+  let count = 0;
+  if (data.climateControlAvailable) count++;
+  if (data.ventilationSystemInspection?.status || data.ventilationSystemInspection?.photos?.length) count++;
+  if (data.acCoolingInspection?.status || data.acCoolingInspection?.photos?.length) count++;
+  if (data.acPanelInspection?.status || data.acPanelInspection?.photos?.length) count++;
+  if (data.blowerMotorInspection?.status || data.blowerMotorInspection?.photos?.length) count++;
+  if (data.acCompressorInspection?.status || data.acCompressorInspection?.photos?.length) count++;
+  if (data.heaterSystemStatus?.status || data.heaterSystemStatus?.photos?.length) count++;
+  return count;
+};
+
 const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
   const acData: Partial<ACData> = currentSession?.formData.ac ?? {};
   const [selectedComponent, setSelectedComponent] = useState<ACComponentType | null>(null);
+
+  const catalog = useCatalogViewModel(selectCatalog);
+  const ac = catalog.airConditioning;
 
   const updateAC = useCallback(
     (key: keyof ACData, val: ACData[keyof ACData]) => updateFormData(InspectionStepId.Exterior, { [key]: val }),
@@ -108,6 +139,9 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
       isPhotoIssueBlockComplete(acData.acCoolingInspection, { requirePhoto: false, photoOnlyOk: true }),
   );
 
+  const inspectedCount = useMemo(() => countInspected(acData), [acData]);
+  const totalCount = AC_COMPONENTS.length;
+
   const handleNext = useCallback(() => {
     if (isComplete) {
       markStepComplete(InspectionStepId.Exterior);
@@ -115,55 +149,71 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
     }
   }, [isComplete, markStepComplete, onNext]);
 
-  const renderComponentCard = (component: ACComponent) => {
-    const badge = getStatusBadge(component, acData);
-    const previewUri = getPreviewUri(component.id, acData);
-    const hasPreview = isValidImageUri(previewUri);
+  const handleSelectComponent = useCallback((id: ACComponentType) => {
+    setSelectedComponent(id);
+  }, []);
 
-    return (
-      <TouchableOpacity
-        key={component.id}
-        style={styles.componentCard}
-        onPress={() => setSelectedComponent(component.id)}
-        activeOpacity={0.78}>
-        <View style={styles.thumbWrap}>
-          <View style={styles.thumb}>
-            {hasPreview ? (
-              <Image source={{ uri: previewUri }} style={styles.thumbImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.thumbFallback}>
-                <Text style={styles.thumbIcon}>📷</Text>
-                <Text style={styles.thumbFallbackText}>Optional</Text>
-              </View>
-            )}
-          </View>
-        </View>
+  const handleBack = useCallback(() => setSelectedComponent(null), []);
 
-        <View style={styles.cardBody}>
-          <View style={styles.cardTopRow}>
-            <View style={styles.cardTextWrap}>
-              <Text style={styles.cardTitle}>{component.title}</Text>
-              <Text style={styles.cardSubtitle}>{component.subtitle}</Text>
+  const renderComponentCard = useCallback(
+    (component: ACComponent) => {
+      const badge = getStatusBadge(component, acData);
+      const previewUri = getPreviewUri(component.id, acData);
+      const hasPreview = isValidImageUri(previewUri);
+
+      return (
+        <TouchableOpacity
+          key={component.id}
+          style={styles.componentCard}
+          onPress={() => handleSelectComponent(component.id)}
+          activeOpacity={0.78}>
+          {/* Thumbnail */}
+          <View style={styles.thumbWrap}>
+            <View style={styles.thumb}>
+              {hasPreview ? (
+                <Image source={{ uri: previewUri }} style={styles.thumbImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.thumbFallback}>
+                  <Text style={styles.thumbIcon}>📷</Text>
+                  <Text style={styles.thumbFallbackText}>Tap to add</Text>
+                </View>
+              )}
             </View>
-            {badge.status ? (
-              <View style={[styles.statusBadge, { backgroundColor: badge.color }]}>
-                <Text style={[styles.statusText, { color: badge.color === colors.warning ? colors.text : colors.success }]}>
-                  {badge.status}
-                </Text>
+          </View>
+
+          {/* Card body */}
+          <View style={styles.cardBody}>
+            <View style={styles.cardTopRow}>
+              <View style={styles.cardTextWrap}>
+                {/* Title row with inline required star */}
+                <View style={styles.titleRow}>
+                  <Text style={styles.cardTitle}>{component.title}</Text>
+                  {component.isRequired ? <Text style={styles.requiredStar}> *</Text> : null}
+                </View>
+                <Text style={styles.cardSubtitle}>{component.subtitle}</Text>
               </View>
-            ) : null}
-          </View>
 
-          <View style={styles.editRow}>
-            <Text style={styles.editIcon}>✎</Text>
-            <Text style={styles.editText}>Edit</Text>
-          </View>
-        </View>
+              {badge.status ? (
+                <View style={[styles.statusBadge, { backgroundColor: badge.bgColor }]}>
+                  <Text style={[styles.statusText, { color: badge.textColor }]}>{badge.status}</Text>
+                </View>
+              ) : null}
+            </View>
 
-        {component.isRequired ? <Text style={styles.requiredStar}>*</Text> : null}
-      </TouchableOpacity>
-    );
-  };
+            <TouchableOpacity
+              style={styles.editRow}
+              onPress={() => handleSelectComponent(component.id)}
+              hitSlop={EDIT_HIT_SLOP}
+              activeOpacity={0.6}>
+              <Text style={styles.editIcon}>✎</Text>
+              <Text style={styles.editText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [acData, handleSelectComponent],
+  );
 
   const renderClimateControl = () => (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
@@ -173,7 +223,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
         issueOptions={[]}
         value={acData.climateControlInspection}
         onChange={(block) => updateAC('climateControlInspection', block)}
-        onBack={() => setSelectedComponent(null)}
+        onBack={handleBack}
         layout="photoFirstSubmit"
         photoLabel="Photo"
         photoRequired={false}
@@ -204,7 +254,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
         issueOptions={issueOptions}
         value={value}
         onChange={onChange}
-        onBack={() => setSelectedComponent(null)}
+        onBack={handleBack}
         layout="photoFirstSubmit"
         photoLabel="Photo"
         photoRequired={false}
@@ -212,14 +262,12 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
     </SafeAreaView>
   );
 
-  if (selectedComponent === 'climateControl') {
-    return renderClimateControl();
-  }
+  if (selectedComponent === 'climateControl') return renderClimateControl();
 
   if (selectedComponent === 'acCooling') {
     return renderPhotoIssueDetail(
       'AC Cooling',
-      AC_COOLING_ISSUE_OPTIONS,
+      ac.acCoolingIssues,
       acData.acCoolingInspection,
       (block) => updateAC('acCoolingInspection', block),
     );
@@ -228,7 +276,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   if (selectedComponent === 'heaterSystem') {
     return renderPhotoIssueDetail(
       'Heater System',
-      HEATER_SYSTEM_ISSUE_OPTIONS,
+      ['Not working'],
       acData.heaterSystemStatus,
       (block) => updateAC('heaterSystemStatus', block),
     );
@@ -237,7 +285,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   if (selectedComponent === 'acPanel') {
     return renderPhotoIssueDetail(
       'AC Control Panel',
-      AC_CONTROL_PANEL_ISSUE_OPTIONS,
+      ac.acControlPanelIssues,
       acData.acPanelInspection,
       (block) => updateAC('acPanelInspection', block),
     );
@@ -246,7 +294,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   if (selectedComponent === 'blowerMotor') {
     return renderPhotoIssueDetail(
       'Blower Motor',
-      BLOWER_MOTOR_ISSUE_OPTIONS,
+      ac.blowerMotorIssues,
       acData.blowerMotorInspection,
       (block) => updateAC('blowerMotorInspection', block),
     );
@@ -255,7 +303,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   if (selectedComponent === 'acCompressor') {
     return renderPhotoIssueDetail(
       'AC Compressor',
-      AC_COMPRESSOR_ISSUE_OPTIONS,
+      ac.acCompressorIssues,
       acData.acCompressorInspection,
       (block) => updateAC('acCompressorInspection', block),
     );
@@ -264,7 +312,7 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   if (selectedComponent === 'ventilation') {
     return renderPhotoIssueDetail(
       'Ventilation System',
-      VENTILATION_SYSTEM_ISSUE_OPTIONS,
+      ac.ventilationSystemIssues,
       acData.ventilationSystemInspection,
       (block) => updateAC('ventilationSystemInspection', block),
     );
@@ -273,12 +321,29 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <AppHeader title="Air Conditioning" subtitle="Step 3 of 6" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <View style={styles.componentsContainer}>{AC_COMPONENTS.map(renderComponentCard)}</View>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
+
+        {/* Section header */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>AC Components</Text>
+          <Text style={styles.sectionSubtitle}>Tap each component to inspect</Text>
+          <Text style={styles.progressText}>
+            {inspectedCount} / {totalCount} components inspected
+          </Text>
+        </View>
+
+        <View style={styles.componentsContainer}>
+          {AC_COMPONENTS.map(renderComponentCard)}
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
-        {!isComplete && <Text style={styles.hint}>* Complete required fields to proceed</Text>}
+        {!isComplete && (
+          <Text style={styles.hint}>* Complete required fields to proceed</Text>
+        )}
         <AppButton label="Next →" onPress={handleNext} isDisabled={!isComplete} testID="step3-next-btn" />
       </View>
     </SafeAreaView>
@@ -286,19 +351,51 @@ const Step2AirConditioning: React.FC<Props> = ({ onNext, onBack }) => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.base, paddingBottom: vs(20) },
-  componentsContainer: { gap: vs(12) },
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  content: {
+    padding: spacing.base,
+    paddingBottom: verticalSpacing.lg,
+  },
+
+  // Section header
+  sectionHeader: {
+    marginBottom: verticalSpacing.md,
+  },
+  sectionTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text,
+    marginBottom: verticalSpacing.xxs,
+  },
+  sectionSubtitle: {
+    fontSize: typography.fontSize.sm,
+    color: colors.textSecondary,
+    marginBottom: verticalSpacing.xs,
+  },
+  progressText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.textTertiary,
+    fontWeight: typography.fontWeight.medium,
+  },
+
+  // Component list
+  componentsContainer: {
+    gap: vs(12),
+  },
   componentCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
     padding: spacing.base,
-    marginBottom: vs(8),
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.border,
   },
+
+  // Thumbnail
   thumbWrap: {
     marginRight: spacing.md,
   },
@@ -307,9 +404,9 @@ const styles = StyleSheet.create({
     height: vs(72),
     borderRadius: borderRadius.md,
     overflow: 'hidden',
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: colors.borderLight,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.border,
   },
   thumbImage: {
     width: '100%',
@@ -327,9 +424,12 @@ const styles = StyleSheet.create({
   },
   thumbFallbackText: {
     fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
     fontWeight: typography.fontWeight.medium,
+    textAlign: 'center',
   },
+
+  // Card body
   cardBody: {
     flex: 1,
   },
@@ -342,16 +442,27 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: spacing.sm,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: vs(4),
+  },
   cardTitle: {
     fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
+    fontWeight: typography.fontWeight.semiBold,
     color: colors.text,
-    marginBottom: vs(4),
+  },
+  requiredStar: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.error,
   },
   cardSubtitle: {
     fontSize: typography.fontSize.xs,
     color: colors.textSecondary,
   },
+
+  // Status badge
   statusBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: vs(4),
@@ -360,12 +471,17 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold,
+    fontWeight: typography.fontWeight.semiBold,
   },
+
+  // Edit row
   editRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: vs(10),
+    paddingVertical: vs(4),
+    paddingRight: spacing.sm,
+    alignSelf: 'flex-start',
   },
   editIcon: {
     fontSize: typography.fontSize.sm,
@@ -377,13 +493,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: typography.fontWeight.medium,
   },
-  requiredStar: {
-    color: colors.error,
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.bold,
-    marginLeft: spacing.sm,
-    alignSelf: 'flex-start',
-  },
+
+  // Misc
   extraSection: {
     marginTop: vs(16),
   },
@@ -395,7 +506,7 @@ const styles = StyleSheet.create({
   },
   hint: {
     fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
+    color: colors.warning,
     textAlign: 'center',
     marginBottom: vs(8),
   },

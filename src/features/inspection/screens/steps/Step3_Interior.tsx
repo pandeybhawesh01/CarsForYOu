@@ -11,9 +11,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
 import { colors } from '../../../../constants/colors';
-import { spacing } from '../../../../constants/spacing';
+import { borderRadius, spacing } from '../../../../constants/spacing';
 import { typography } from '../../../../constants/typography';
 import { vs } from '../../../../utils/scaling';
+import { useCatalogViewModel, selectCatalog } from '../../../../viewmodels/catalogViewModel';
 
 interface Props {
   onNext: () => void;
@@ -30,28 +31,33 @@ const SECTION_TITLES: Record<SectionKey, string> = {
   suspension: 'Suspension',
 };
 
-const ISSUE_OPTIONS: Record<SectionKey, string[]> = {
-  steering: [
-    'Hard steering movement',
-    'Steering wheel vibration',
-    'Steering play too high',
-    'Power steering warning light',
-  ],
-  brake: [
-    'Brake pedal too soft',
-    'Brake noise while stopping',
-    'Handbrake not holding',
-    'ABS warning light on',
-  ],
-  suspension: [
-    'Uneven ride height',
-    'Suspension knocking noise',
-    'Excessive body roll',
-    'Shock absorber leakage',
-  ],
+const SECTION_ICONS: Record<SectionKey, string> = {
+  steering: '🔄',
+  brake: '🛑',
+  suspension: '🔧',
 };
 
+const MODAL_BACKDROP_COLOR = 'rgba(0,0,0,0.55)';
+
 const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
+  const catalog = useCatalogViewModel(selectCatalog);
+  const sb = catalog.steeringBrakes;
+
+  // Issue options sourced from catalog, with hardcoded fallbacks
+  const ISSUE_OPTIONS: Record<SectionKey, string[]> = useMemo(
+    () => ({
+      steering: sb.steeringIssues.length
+        ? sb.steeringIssues
+        : ['Hard steering movement', 'Steering wheel vibration', 'Steering play too high', 'Power steering warning light'],
+      brake: sb.brakesIssues.length
+        ? sb.brakesIssues
+        : ['Brake pedal too soft', 'Brake noise while stopping', 'Handbrake not holding', 'ABS warning light on'],
+      suspension: sb.suspensionIssues.length
+        ? sb.suspensionIssues
+        : ['Uneven ride height', 'Suspension knocking noise', 'Excessive body roll', 'Shock absorber leakage'],
+    }),
+    [sb],
+  );
   const [selectedIssues, setSelectedIssues] = useState<IssueMap>({
     steering: [],
     brake: [],
@@ -81,11 +87,13 @@ const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
         return {
           section,
           title: SECTION_TITLES[section],
+          icon: SECTION_ICONS[section],
           count,
           status,
         };
       }),
-    [sections, selectedIssues],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedIssues],
   );
 
   return (
@@ -93,33 +101,52 @@ const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
       <AppHeader title="Interior Inspection" subtitle="Step 3 of 6" onBack={onBack} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.pageTitle}>Section Summary</Text>
+        <View style={styles.pageTitleContainer}>
+          <Text style={styles.pageTitle}>Section Summary</Text>
+          <Text style={styles.pageSubtitle}>Select issues found in each section</Text>
+        </View>
 
-        {summary.map((item) => (
-          <View key={item.section} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              <View
-                style={[
-                  styles.badge,
-                  item.status === 'OK' ? styles.badgeOk : styles.badgeAttention,
-                ]}
-              >
-                <Text style={styles.badgeText}>{item.status}</Text>
+        {summary.map((item) => {
+          const isAttention = item.status === 'Needs Attention';
+          return (
+            <View
+              key={item.section}
+              style={[
+                styles.card,
+                isAttention ? styles.cardAccentAttention : styles.cardAccentOk,
+              ]}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardTitleRow}>
+                  <Text style={styles.cardIcon}>{item.icon}</Text>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.badge,
+                    isAttention ? styles.badgeAttention : styles.badgeOk,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      isAttention ? styles.badgeTextAttention : styles.badgeTextOk,
+                    ]}>
+                    {item.status}
+                  </Text>
+                </View>
               </View>
+
+              <Text style={styles.cardSubtext}>
+                {item.count === 0
+                  ? 'No issues selected'
+                  : `${item.count} issue${item.count > 1 ? 's' : ''} selected`}
+              </Text>
+
+              <Pressable style={styles.detailButton} onPress={() => setActiveModal(item.section)}>
+                <Text style={styles.detailButtonText}>Inspect →</Text>
+              </Pressable>
             </View>
-
-            <Text style={styles.cardSubtext}>
-              {item.count === 0
-                ? 'No issues selected'
-                : `${item.count} issue${item.count > 1 ? 's' : ''} selected`}
-            </Text>
-
-            <Pressable style={styles.detailButton} onPress={() => setActiveModal(item.section)}>
-              <Text style={styles.detailButtonText}>View details</Text>
-            </Pressable>
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -132,8 +159,7 @@ const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
           visible={activeModal === section}
           transparent
           animationType="slide"
-          onRequestClose={() => setActiveModal(null)}
-        >
+          onRequestClose={() => setActiveModal(null)}>
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContainer}>
               <Text style={styles.modalTitle}>{SECTION_TITLES[section]} Details</Text>
@@ -146,8 +172,7 @@ const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
                     <Pressable
                       key={issue}
                       style={styles.checkboxRow}
-                      onPress={() => toggleIssue(section, issue)}
-                    >
+                      onPress={() => toggleIssue(section, issue)}>
                       <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
                         {checked ? <Text style={styles.checkboxTick}>✓</Text> : null}
                       </View>
@@ -157,7 +182,7 @@ const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
                 })}
               </ScrollView>
 
-              <AppButton label="Done" onPress={() => setActiveModal(null)} />
+              <AppButton label="Done" variant="primary" onPress={() => setActiveModal(null)} />
             </View>
           </View>
         </Modal>
@@ -176,24 +201,47 @@ const styles = StyleSheet.create({
     paddingBottom: vs(20),
     gap: vs(12),
   },
+  pageTitleContainer: {
+    marginBottom: vs(4),
+    gap: vs(2),
+  },
   pageTitle: {
     fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold,
     color: colors.textPrimary,
-    marginBottom: vs(4),
+  },
+  pageSubtitle: {
+    fontSize: typography.fontSize.sm,
+    color: colors.textSecondary,
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: borderRadius.md,
     padding: spacing.base,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  cardAccentOk: {
+    borderLeftColor: colors.success,
+    borderLeftWidth: 3,
+  },
+  cardAccentAttention: {
+    borderLeftColor: colors.error,
+    borderLeftWidth: 3,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: vs(8),
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  cardIcon: {
+    fontSize: typography.fontSize.md,
   },
   cardTitle: {
     fontSize: typography.fontSize.sm,
@@ -206,31 +254,37 @@ const styles = StyleSheet.create({
     marginBottom: vs(10),
   },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: vs(4),
+    borderRadius: borderRadius.full,
   },
   badgeOk: {
-    backgroundColor: '#D1FAE5',
+    backgroundColor: colors.successLight,
   },
   badgeAttention: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: colors.errorLight,
   },
   badgeText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold,
-    color: colors.textPrimary,
+  },
+  badgeTextOk: {
+    color: colors.success,
+  },
+  badgeTextAttention: {
+    color: colors.error,
   },
   detailButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    alignSelf: 'stretch',
+    paddingVertical: vs(10),
+    paddingHorizontal: spacing.base,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
   },
   detailButtonText: {
     color: colors.surface,
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.bold,
   },
   footer: {
@@ -242,13 +296,13 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: MODAL_BACKDROP_COLOR,
   },
   modalContainer: {
     maxHeight: '80%',
     backgroundColor: colors.surface,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: borderRadius.lg,
+    borderTopRightRadius: borderRadius.lg,
     padding: spacing.base,
     gap: vs(12),
   },
@@ -267,15 +321,15 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: vs(10),
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: 10,
+    gap: spacing.sm,
   },
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 6,
+    borderRadius: borderRadius.xs,
     borderWidth: 1,
     borderColor: colors.border,
     justifyContent: 'center',

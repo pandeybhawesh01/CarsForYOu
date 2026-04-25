@@ -18,6 +18,10 @@ import { colors } from '../../../../constants/colors';
 import { spacing } from '../../../../constants/spacing';
 import { typography } from '../../../../constants/typography';
 import { hs, vs } from '../../../../utils/scaling';
+import { useCatalogViewModel, selectCatalog } from '../../../../viewmodels/catalogViewModel';
+
+// Minimum touch target per accessibility guidelines
+const MIN_TOUCH_TARGET = 44;
 
 interface Props {
   onNext: () => void;
@@ -46,6 +50,7 @@ interface CardDefinition {
   title: string;
   statusKey: StatusKey;
   photoKey: PhotoKey;
+  icon: string;
 }
 
 const POWER_WINDOW_OPTIONS = ['0', '2', '4'] as const;
@@ -56,18 +61,21 @@ const CARD_DEFINITIONS: CardDefinition[] = [
     title: 'Lock system',
     statusKey: 'lockSystemStatus',
     photoKey: 'lockSystemPhoto',
+    icon: '🔒',
   },
   {
     key: 'front-left',
     title: 'Front left window',
     statusKey: 'frontLeftWindowStatus',
     photoKey: 'frontLeftWindowPhoto',
+    icon: '🪟',
   },
   {
     key: 'front-right',
     title: 'Front right window',
     statusKey: 'frontRightWindowStatus',
     photoKey: 'frontRightWindowPhoto',
+    icon: '🪟',
   },
 ];
 
@@ -79,8 +87,25 @@ const yesNoLabel = (value?: YesNoNA): string => {
   return '';
 };
 
+/** Derive badge variant from card status */
+type BadgeVariant = 'pending' | 'ok' | 'issue';
+
+const getBadgeVariant = (status?: YesNoNA, photo?: string): BadgeVariant => {
+  if (!status && !photo) return 'pending';
+  if (status === YesNoNA.Yes) return 'ok';
+  return 'issue';
+};
+
 const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
   const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
+  const catalog = useCatalogViewModel(selectCatalog);
+  const powerWindowOptions = useMemo(
+    () =>
+      catalog.electricalInteriors.powerWindowsCountOptions.length
+        ? catalog.electricalInteriors.powerWindowsCountOptions
+        : ['0', '2', '4'],
+    [catalog.electricalInteriors.powerWindowsCountOptions],
+  );
   const data = (currentSession?.formData.documents ?? {}) as ElectricalsInteriorsData;
   const appointmentId = currentSession?.appointmentId ?? '';
   const [activeCard, setActiveCard] = useState<CardKey | null>(null);
@@ -145,6 +170,7 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
     ? CARD_DEFINITIONS.find((card) => card.key === activeCard) ?? null
     : null;
 
+  // ─── Detail view ────────────────────────────────────────────────────────────
   if (activeCardMeta) {
     const statusValue = data[activeCardMeta.statusKey];
     const photoValue = data[activeCardMeta.photoKey];
@@ -158,7 +184,12 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
 
         <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
           <View style={styles.detailCard}>
-            <Text style={styles.detailTitle}>Capture image</Text>
+            {/* Section header for photo capture */}
+            <View style={styles.detailSectionHeader}>
+              <Text style={styles.detailSectionIcon}>{activeCardMeta.icon}</Text>
+              <Text style={styles.detailSectionLabel}>Capture a clear photo of this component</Text>
+            </View>
+
             <PhotoCapture
               label="Photo"
               imageUri={photoValue}
@@ -191,6 +222,7 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
     );
   }
 
+  // ─── Main list view ──────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <AppHeader
@@ -201,27 +233,38 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {summaryCards.map((card) => {
-          const allOk = card.status === YesNoNA.Yes;
+          const variant = getBadgeVariant(card.status, card.photo);
+          const hasPhoto = isValidImageUri(card.photo);
           return (
             <TouchableOpacity
               key={card.key}
               style={styles.statusCard}
               activeOpacity={0.85}
               onPress={() => setActiveCard(card.key)}>
+              {/* Thumbnail */}
               <View style={styles.thumbWrap}>
-                {isValidImageUri(card.photo) ? (
-                  <Image source={{ uri: card.photo }} style={styles.thumbImage} resizeMode="cover" />
+                {hasPhoto ? (
+                  <>
+                    <Image source={{ uri: card.photo }} style={styles.thumbImage} resizeMode="cover" />
+                    {/* Eye overlay only when photo exists */}
+                    <View style={styles.thumbOverlay}>
+                      <Text style={styles.thumbOverlayIcon}>◉</Text>
+                    </View>
+                  </>
                 ) : (
                   <View style={styles.thumbFallback}>
-                    <Text style={styles.eyeIcon}>◉</Text>
+                    <Text style={styles.thumbCardIcon}>{card.icon}</Text>
+                    <Text style={styles.cameraIcon}>📷</Text>
+                    <Text style={styles.tapToCaptureText}>Tap to capture</Text>
                   </View>
                 )}
               </View>
 
+              {/* Card body */}
               <View style={styles.cardBody}>
-                <View style={[styles.badge, allOk ? styles.badgeOk : styles.badgeIssue]}>
-                  <Text style={[styles.badgeText, allOk ? styles.badgeTextOk : styles.badgeTextIssue]}>
-                    {allOk ? 'ALL OK' : 'ISSUE SUBMITTED'}
+                <View style={[styles.badge, styles[`badge_${variant}`]]}>
+                  <Text style={[styles.badgeText, styles[`badgeText_${variant}`]]}>
+                    {variant === 'pending' ? 'PENDING' : variant === 'ok' ? 'ALL OK' : 'ISSUE SUBMITTED'}
                   </Text>
                 </View>
                 <Text style={styles.cardTitle}>{card.title}</Text>
@@ -238,13 +281,14 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
           );
         })}
 
+        {/* Power windows block */}
         <View style={styles.block}>
           <Text style={styles.blockTitle}>
             Count of power windows <Text style={styles.requiredInline}>*</Text>
           </Text>
           <Text style={styles.blockSubTitle}>Select count of power windows</Text>
           <View style={styles.optionRow}>
-            {POWER_WINDOW_OPTIONS.map((option) => {
+            {powerWindowOptions.map((option) => {
               const selected = data.powerWindowsCount === option;
               return (
                 <TouchableOpacity
@@ -259,6 +303,7 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
           </View>
         </View>
 
+        {/* Sunroof block */}
         <View style={styles.block}>
           <Text style={styles.blockTitle}>
             Sunroof <Text style={styles.requiredInline}>*</Text>
@@ -284,7 +329,7 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
           {data.sunroofAvailable === YesNoNA.Yes ? (
             <View style={styles.sunroofCaptureCard}>
               <Text style={styles.sunroofCaptureTitle}>
-                Sunroof <Text style={styles.requiredInline}>*</Text>
+                Sunroof photo <Text style={styles.requiredInline}>*</Text>
               </Text>
               <View style={styles.sunroofPreview}>
                 {isValidImageUri(data.sunroofPhoto) ? (
@@ -295,13 +340,14 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
               </View>
               <TouchableOpacity style={styles.captureButton} onPress={captureSunroofPhoto} activeOpacity={0.85}>
                 <Text style={styles.captureButtonText}>
-                  {data.sunroofPhoto ? 'Retake photo' : 'Take photo'}
+                  {'📷  '}{data.sunroofPhoto ? 'Retake photo' : 'Take photo'}
                 </Text>
               </TouchableOpacity>
             </View>
           ) : null}
         </View>
 
+        {/* Music system block */}
         <View style={[styles.block, styles.lastBlock]}>
           <Text style={styles.blockTitle}>
             Is the music system present? <Text style={styles.requiredInline}>*</Text>
@@ -326,7 +372,9 @@ const Step5ElectricalsInteriors: React.FC<Props> = ({ onNext, onBack }) => {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Text style={styles.footerHint}>You may go to next section once this is completed.</Text>
+        <Text style={[styles.footerHint, !isComplete && styles.footerHintIncomplete]}>
+          Complete all required fields to proceed
+        </Text>
         <AppButton label="Next" onPress={handleNext} isDisabled={!isComplete} testID="step5-next-btn" />
       </View>
     </SafeAreaView>
@@ -353,10 +401,30 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: spacing.base,
   },
+  detailSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: vs(8),
+    marginBottom: vs(14),
+    gap: hs(8),
+  },
+  detailSectionIcon: {
+    fontSize: typography.fontSize.base,
+  },
+  detailSectionLabel: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semiBold,
+  },
   detailTitle: {
     color: colors.text,
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.bold,
+    marginTop: vs(14),
     marginBottom: vs(10),
   },
   statusCard: {
@@ -381,15 +449,34 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  thumbOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  thumbOverlayIcon: {
+    fontSize: typography.fontSize.lg,
+    color: colors.white,
+  },
   thumbFallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.borderLight,
+    backgroundColor: colors.surfaceSecondary,
+    gap: vs(2),
   },
-  eyeIcon: {
+  thumbCardIcon: {
     fontSize: typography.fontSize.lg,
-    color: colors.textSecondary,
+  },
+  cameraIcon: {
+    fontSize: typography.fontSize.base,
+  },
+  tapToCaptureText: {
+    color: colors.textTertiary,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    textAlign: 'center',
   },
   cardBody: {
     flex: 1,
@@ -402,20 +489,27 @@ const styles = StyleSheet.create({
     paddingVertical: vs(3),
     marginBottom: vs(8),
   },
-  badgeOk: {
+  // Badge variants via computed style keys
+  badge_ok: {
     backgroundColor: colors.successLight,
   },
-  badgeIssue: {
+  badge_issue: {
+    backgroundColor: colors.warningLight,
+  },
+  badge_pending: {
     backgroundColor: colors.warningLight,
   },
   badgeText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold,
   },
-  badgeTextOk: {
+  badgeText_ok: {
     color: colors.success,
   },
-  badgeTextIssue: {
+  badgeText_issue: {
+    color: colors.warning,
+  },
+  badgeText_pending: {
     color: colors.warning,
   },
   cardTitle: {
@@ -451,7 +545,7 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   blockTitle: {
-    color: colors.text,
+    color: colors.textPrimary,
     fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold,
     marginBottom: vs(10),
@@ -470,9 +564,10 @@ const styles = StyleSheet.create({
     gap: hs(8),
   },
   countChip: {
-    minWidth: hs(36),
-    paddingHorizontal: hs(10),
-    paddingVertical: vs(8),
+    minWidth: hs(44),
+    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: hs(14),
+    paddingVertical: vs(10),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
@@ -493,9 +588,10 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   choiceChip: {
-    minWidth: hs(52),
-    paddingHorizontal: hs(14),
-    paddingVertical: vs(8),
+    minWidth: hs(64),
+    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: hs(18),
+    paddingVertical: vs(10),
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
@@ -550,6 +646,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     paddingVertical: vs(11),
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   captureButtonText: {
     color: colors.white,
@@ -568,6 +666,9 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     fontSize: typography.fontSize.xs,
     marginBottom: vs(8),
+  },
+  footerHintIncomplete: {
+    color: colors.warning,
   },
 });
 

@@ -22,6 +22,8 @@ import { spacing, borderRadius } from '../../../../constants/spacing';
 import { vs, hs } from '../../../../utils/scaling';
 import { isPhotoIssueBlockComplete } from '../../utils/photoInspection';
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 interface Props {
   onNext: () => void;
   onBack: () => void;
@@ -32,6 +34,19 @@ type EditorState =
   | { mode: 'part'; partId: string; label: string };
 
 const TAB_ORDER: ExteriorTyreTabId[] = ['front', 'left', 'rear', 'right'];
+
+/** Directional arrow per tab to communicate walkaround direction */
+const TAB_DIRECTION_ICON: Record<ExteriorTyreTabId, string> = {
+  front: '⬆️',
+  left: '⬅️',
+  rear: '⬇️',
+  right: '➡️',
+};
+
+/** Total required fields outside of walkaround photos */
+const REQUIRED_FORM_FIELDS = 3; // frontBumper, frontTyreLeft, spareTyre
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
   const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
@@ -68,6 +83,31 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
     [tabComplete],
   );
 
+  // ── Completion summary ──────────────────────────────────────────────────────
+
+  /** Count how many required walkaround parts are done across all tabs */
+  const { completedRequired, totalRequired } = useMemo(() => {
+    let completed = 0;
+    let total = 0;
+    TAB_ORDER.forEach((tid) => {
+      EXTERIOR_TYRE_TAB_PARTS[tid].forEach((p) => {
+        if (!p.required) return;
+        total += 1;
+        if (isPhotoIssueBlockComplete(exteriorTyreParts[p.id], { requirePhoto: true, photoOnlyOk: true })) {
+          completed += 1;
+        }
+      });
+    });
+    // Add the 3 required form fields
+    total += REQUIRED_FORM_FIELDS;
+    if (data.frontBumper !== undefined) completed += 1;
+    if (data.frontTyreLeft !== undefined) completed += 1;
+    if (data.spareTyre !== undefined) completed += 1;
+    return { completedRequired: completed, totalRequired: total };
+  }, [exteriorTyreParts, data.frontBumper, data.frontTyreLeft, data.spareTyre]);
+
+  const progressFraction = totalRequired > 0 ? completedRequired / totalRequired : 0;
+
   const isComplete =
     allExteriorPartsDone &&
     data.frontBumper !== undefined &&
@@ -83,9 +123,11 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
 
   const parts = EXTERIOR_TYRE_TAB_PARTS[tab];
 
+  // ── Part detail view ────────────────────────────────────────────────────────
+
   if (editor.mode === 'part') {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.partDetailSafe]} edges={['bottom']}>
+      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
         <InspectionImageDetailPanel
           title={editor.label}
           subtitle={`Appl. ID : ${appointmentId}`}
@@ -101,6 +143,8 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
     );
   }
 
+  // ── Main list view ──────────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <AppHeader
@@ -108,27 +152,41 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
         subtitle={`Appl. ID : ${appointmentId}`}
         onBack={onBack}
       />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll}>
-          {TAB_ORDER.map((tid) => {
-            const done = tabComplete(tid);
-            const active = tab === tid;
-            return (
-              <TouchableOpacity
-                key={tid}
-                style={[styles.tabChip, active && styles.tabChipActive]}
-                onPress={() => setTab(tid)}
-                activeOpacity={0.85}>
-                <Text style={styles.tabIcon}>🚗</Text>
-                {done ? <Text style={styles.tabCheck}>✓</Text> : null}
-                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
-                  {EXTERIOR_TYRE_TAB_LABELS[tid]}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
 
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
+        {/* ── Walkaround tab strip with fade-right scroll hint ── */}
+        <View style={styles.tabScrollWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.tabScroll}
+            contentContainerStyle={styles.tabScrollContent}>
+            {TAB_ORDER.map((tid) => {
+              const done = tabComplete(tid);
+              const active = tab === tid;
+              return (
+                <TouchableOpacity
+                  key={tid}
+                  style={[styles.tabChip, active && styles.tabChipActive]}
+                  onPress={() => setTab(tid)}
+                  activeOpacity={0.85}>
+                  <Text style={styles.tabIcon}>{TAB_DIRECTION_ICON[tid]}</Text>
+                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+                    {EXTERIOR_TYRE_TAB_LABELS[tid]}
+                  </Text>
+                  {done && (
+                    <Text style={styles.tabCheck}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          {/* Subtle right-edge fade to hint at horizontal scrollability */}
+          <View style={styles.tabScrollFade} pointerEvents="none" />
+        </View>
+
+        {/* ── Walkaround photo rows ── */}
         <View style={styles.section}>
           {parts.map((p) => (
             <InspectionPhotoSummaryRow
@@ -141,8 +199,10 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
           ))}
         </View>
 
+        {/* ── Body panels ── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Body panels</Text>
+          <View style={styles.sectionTitleDivider} />
           <ConditionSelector
             label="Front Bumper"
             value={data.frontBumper}
@@ -154,13 +214,27 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
             value={data.rearBumper}
             onChange={(v) => updateFormData(InspectionStepId.Exterior, { rearBumper: v })}
           />
-          <ConditionSelector label="Bonnet" value={data.bonnet} onChange={(v) => updateFormData(InspectionStepId.Exterior, { bonnet: v })} />
-          <ConditionSelector label="Boot Lid" value={data.bootLid} onChange={(v) => updateFormData(InspectionStepId.Exterior, { bootLid: v })} />
-          <YesNoSelector label="Any rust visible?" value={data.rust} onChange={(v) => updateFormData(InspectionStepId.Exterior, { rust: v })} />
+          <ConditionSelector
+            label="Bonnet"
+            value={data.bonnet}
+            onChange={(v) => updateFormData(InspectionStepId.Exterior, { bonnet: v })}
+          />
+          <ConditionSelector
+            label="Boot Lid"
+            value={data.bootLid}
+            onChange={(v) => updateFormData(InspectionStepId.Exterior, { bootLid: v })}
+          />
+          <YesNoSelector
+            label="Any rust visible?"
+            value={data.rust}
+            onChange={(v) => updateFormData(InspectionStepId.Exterior, { rust: v })}
+          />
         </View>
 
+        {/* ── Tyres (condition) ── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tyres (condition)</Text>
+          <View style={styles.sectionTitleDivider} />
           <ConditionSelector
             label="Front Left Tyre"
             value={data.frontTyreLeft}
@@ -190,11 +264,13 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
           />
         </View>
 
+        {/* ── Additional photos ── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Additional photos (optional)</Text>
+          <View style={styles.sectionTitleDivider} />
           <PhotoCapture
             label="Any damage / issues"
-            hint="Close-up of any damage, scratches or defects"
+            hint="Optional: capture any visible damage or defects"
             imageUri={undefined}
             onCapture={(uri) => {
               const existing = (media.additionalImages as string[]) || [];
@@ -205,34 +281,93 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
           />
         </View>
 
+        {/* ── Info card ── */}
         <View style={styles.infoCard}>
           <Text style={styles.infoIcon}>ℹ️</Text>
           <Text style={styles.infoText}>Complete walkaround photos and grading before review.</Text>
         </View>
+
       </ScrollView>
 
+      {/* ── Footer ── */}
       <View style={styles.footer}>
-        <Text style={styles.footerHint}>You may go to next section once this is completed.</Text>
+        {/* Completion summary row */}
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryText}>
+            {completedRequired} of {totalRequired} required parts inspected
+          </Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { flex: progressFraction }]} />
+            <View style={{ flex: 1 - progressFraction }} />
+          </View>
+        </View>
+
+        {/* Consolidated hint — only shown when incomplete */}
         {!isComplete && (
-          <Text style={styles.hint}>* Complete all required walkaround photos and fields</Text>
+          <Text style={styles.footerHint}>
+            ⚠️ Complete all required walkaround photos and fields
+          </Text>
         )}
-        <AppButton label="Next" onPress={handleNext} isDisabled={!isComplete} testID="step6-next-btn" />
+
+        <AppButton
+          label="Next"
+          onPress={handleNext}
+          isDisabled={!isComplete}
+          testID="step6-next-btn"
+        />
       </View>
     </SafeAreaView>
   );
 };
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
+
+const TAB_CHIP_MIN_WIDTH = hs(80);
+const TAB_SCROLL_FADE_WIDTH = hs(40);
+const PROGRESS_TRACK_HEIGHT = vs(4);
+const SECTION_TITLE_DIVIDER_HEIGHT = vs(1);
+const INFO_CARD_BORDER_WIDTH = 3;
+
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  partDetailSafe: { backgroundColor: colors.surface },
-  content: { padding: spacing.base, paddingBottom: vs(20) },
-  tabScroll: { marginBottom: vs(12) },
-  tabChip: {
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+
+  content: {
+    padding: spacing.base,
+    paddingBottom: vs(20),
+  },
+
+  // ── Tab strip ──────────────────────────────────────────────────────────────
+
+  tabScrollWrapper: {
+    marginBottom: vs(12),
     position: 'relative',
-    minWidth: hs(76),
+    overflow: 'hidden',
+  },
+  tabScroll: {
+    flexGrow: 0,
+  },
+  tabScrollContent: {
+    paddingRight: TAB_SCROLL_FADE_WIDTH, // leave room so last chip isn't hidden by fade
+  },
+  /** Gradient approximation: opaque-to-transparent white fade on the right edge */
+  tabScrollFade: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: TAB_SCROLL_FADE_WIDTH,
+    backgroundColor: colors.background,
+    opacity: 0.75,
+  },
+
+  tabChip: {
+    minWidth: TAB_CHIP_MIN_WIDTH,
     paddingVertical: vs(10),
-    paddingHorizontal: hs(12),
-    marginRight: hs(10),
+    paddingHorizontal: spacing.md,
+    marginRight: spacing.sm,
     borderRadius: borderRadius.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -243,24 +378,31 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
   },
-  tabIcon: { fontSize: vs(20), marginBottom: vs(2) },
-  tabCheck: {
-    position: 'absolute',
-    top: vs(4),
-    right: hs(6),
-    fontSize: typography.fontSize.xs,
-    color: colors.success,
-    fontWeight: typography.fontWeight.bold,
+  tabIcon: {
+    fontSize: vs(20),
+    marginBottom: vs(2),
   },
   tabLabel: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.textSecondary,
   },
-  tabLabelActive: { color: colors.primary },
+  tabLabelActive: {
+    color: colors.primary,
+  },
+  /** Inline checkmark below the label — no absolute positioning */
+  tabCheck: {
+    marginTop: vs(3),
+    fontSize: typography.fontSize.xs,
+    color: colors.success,
+    fontWeight: typography.fontWeight.bold,
+  },
+
+  // ── Sections ───────────────────────────────────────────────────────────────
+
   section: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: borderRadius.md,
     padding: spacing.base,
     marginBottom: vs(16),
   },
@@ -270,38 +412,70 @@ const styles = StyleSheet.create({
     color: colors.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: vs(16),
+    marginBottom: vs(8),
   },
+  /** Thin separator line below section title */
+  sectionTitleDivider: {
+    height: SECTION_TITLE_DIVIDER_HEIGHT,
+    backgroundColor: colors.border,
+    marginBottom: vs(12),
+  },
+
+  // ── Info card ──────────────────────────────────────────────────────────────
+
   infoCard: {
     flexDirection: 'row',
     backgroundColor: colors.primaryLight,
-    borderRadius: 12,
+    borderRadius: borderRadius.md,
+    borderLeftWidth: INFO_CARD_BORDER_WIDTH,
+    borderLeftColor: colors.primary,
     padding: spacing.base,
     marginBottom: vs(16),
     alignItems: 'flex-start',
   },
-  infoIcon: { fontSize: vs(18), marginRight: spacing.sm },
+  infoIcon: {
+    fontSize: vs(18),
+    marginRight: spacing.sm,
+  },
   infoText: {
     fontSize: typography.fontSize.sm,
     color: colors.primary,
     flex: 1,
     lineHeight: typography.lineHeight.base,
   },
+
+  // ── Footer ─────────────────────────────────────────────────────────────────
+
   footer: {
     padding: spacing.base,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  footerHint: {
-    fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
-    textAlign: 'center',
+
+  summaryRow: {
     marginBottom: vs(8),
   },
-  hint: {
+  summaryText: {
     fontSize: typography.fontSize.xs,
     color: colors.textSecondary,
+    marginBottom: vs(4),
+  },
+  progressTrack: {
+    flexDirection: 'row',
+    height: PROGRESS_TRACK_HEIGHT,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.full,
+  },
+
+  footerHint: {
+    fontSize: typography.fontSize.xs,
+    color: colors.warning,
     textAlign: 'center',
     marginBottom: vs(8),
   },
