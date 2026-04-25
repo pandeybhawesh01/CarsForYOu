@@ -6,7 +6,7 @@ import Step1BasicVerification from './steps/Step1_BasicVerification';
 import Step2AirConditioning from './steps/Step2_Exterior';
 import Step3SteeringBrakes from './steps/Step3_Interior';
 import Step4EngineTransmission from './steps/Step4_Engine';
-import Step5ElectricalsInterior from './steps/Step5_Documents';
+import Step5ElectricalsInterior from './steps/Step5_ElectricalsInteriors';
 import Step6ExteriorTyres from './steps/Step6_Media';
 import { useInspectionStore } from '../store/inspectionStore';
 
