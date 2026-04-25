@@ -510,22 +510,7 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
         visible={docModalKey !== null}
         animationType="slide"
         onRequestClose={handleCloseModal}>
-        <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
-          {/* Modal header with close button */}
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle} numberOfLines={1}>
-              {docModalKey ? DOCUMENT_PHOTO_LABELS[docModalKey] : ''}
-            </Text>
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={handleCloseModal}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Close">
-              <Text style={styles.modalCloseIcon}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
+        <SafeAreaView style={styles.modalSafe} edges={['bottom']}>
           {docModalKey ? (
             <InspectionImageDetailPanel
               title={DOCUMENT_PHOTO_LABELS[docModalKey]}
@@ -613,31 +598,6 @@ const styles = StyleSheet.create({
   chipTextSelected: {
     color: colors.primary,
     fontWeight: typography.fontWeight.semiBold,
-  },
-  // Modal header
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.base,
-    paddingVertical: verticalSpacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  modalTitle: {
-    flex: 1,
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.semiBold,
-    color: colors.text,
-  },
-  modalCloseBtn: {
-    padding: spacing.xs,
-    marginLeft: spacing.sm,
-  },
-  modalCloseIcon: {
-    fontSize: typography.fontSize.base,
-    color: colors.textSecondary,
-    fontWeight: typography.fontWeight.bold,
   },
   // Footer
   footer: {
