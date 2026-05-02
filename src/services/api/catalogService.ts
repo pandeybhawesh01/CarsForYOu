@@ -148,6 +148,9 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
   const sbSection = raw.data.find((s) => s.section === 'steeringBrakes');
   const steeringBrakesSectionChildren = sbSection?.children ?? [];
 
+  const eiSection = raw.data.find((s) => s.section === 'electricalsInteriors');
+  const electricalsInteriorsSectionChildren = eiSection?.children ?? [];
+
   return {
     optionsByPath: optionsMap,
     fieldsByPath: fieldsMap,
@@ -155,6 +158,7 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
     engineTransmissionSectionChildren,
     airConditioningSectionChildren,
     steeringBrakesSectionChildren,
+    electricalsInteriorsSectionChildren,
 
     airConditioning: {
       acCompressorIssues: optionsForPath(fieldsMap, 'acCompressor.issues'),
