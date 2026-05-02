@@ -39,6 +39,8 @@ interface CatalogState {
  */
 const FALLBACK_CATALOG: NormalisedCatalog = {
   optionsByPath: {},
+  fieldsByPath: {},
+  vehicleSectionChildren: [],
 
   airConditioning: {
     acCompressorIssues: ['AC Compressor not working', 'Compressor noise'],

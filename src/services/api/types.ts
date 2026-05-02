@@ -1,6 +1,10 @@
 /**
  * API response types for the inspection catalog endpoint.
  * Derived from: GET /forms/inspection-report/catalog?view=tree
+ *
+ * New schema (v2): nodes carry an `inputs` array instead of flat
+ * inputType/dataType/options fields. Groups can have both `inputs`
+ * (direct inputs rendered at this level) and `children` (nested nodes).
  */
 
 // ─── Primitive option item ────────────────────────────────────────────────────
@@ -10,9 +14,10 @@ export interface CatalogOption {
   label: string;
   dataType: 'STRING' | 'BOOLEAN' | 'NUMBER';
   subOptions1: CatalogOption[];
+  subOptions2?: CatalogOption[];
 }
 
-// ─── Field node (leaf) ────────────────────────────────────────────────────────
+// ─── Input descriptor (inside the `inputs` array on each node) ───────────────
 
 export type FieldInputType =
   | 'select'
@@ -22,33 +27,56 @@ export type FieldInputType =
   | 'number'
   | string;
 
+export interface CatalogInput {
+  inputType: FieldInputType;
+  dataType: 'STRING' | 'BOOLEAN' | 'NUMBER';
+  allowsMultiple: boolean;
+  options: CatalogOption[];
+}
+
+// ─── Field node (leaf — type: "field") ───────────────────────────────────────
+
 export interface CatalogField {
   type: 'field';
   key: string;
   label: string;
   path: string;
-  dataType: 'STRING' | 'BOOLEAN' | 'NUMBER';
-  inputType: FieldInputType;
-  allowsMultiple: boolean;
-  options: CatalogOption[];
+  section: string;
+  /** New schema: input descriptors live here */
+  inputs: CatalogInput[];
+  /** Children (usually empty for leaf fields) */
+  children: CatalogNode[];
+  // Legacy flat fields (old schema, kept for backward compat)
+  dataType?: 'STRING' | 'BOOLEAN' | 'NUMBER';
+  inputType?: FieldInputType;
+  allowsMultiple?: boolean;
+  options?: CatalogOption[];
 }
 
-// ─── Group node (contains fields) ────────────────────────────────────────────
+// ─── Group node (type: "group") ───────────────────────────────────────────────
 
 export interface CatalogGroup {
-  type: 'group' | 'field';
+  type: 'group';
   key: string;
   label: string;
   path: string;
-  children: CatalogField[];
+  section: string;
+  /** Direct inputs rendered at this group level (e.g. file-upload for chassisEmbossing) */
+  inputs: CatalogInput[];
+  /** Nested child nodes */
+  children: CatalogNode[];
 }
+
+// ─── Union ────────────────────────────────────────────────────────────────────
+
+export type CatalogNode = CatalogField | CatalogGroup;
 
 // ─── Section (top-level) ─────────────────────────────────────────────────────
 
 export interface CatalogSection {
   section: string;
   label: string;
-  children: CatalogGroup[];
+  children: CatalogNode[];
 }
 
 // ─── API response envelope ────────────────────────────────────────────────────
@@ -63,23 +91,31 @@ export interface CatalogApiResponse {
 
 // ─── Normalised catalog (what the ViewModel exposes to the UI) ───────────────
 
-/**
- * A flat map of field path → string[] options, ready for direct use in
- * dropdowns and multi-selects.
- *
- * Example:
- *   catalog['airConditioning.acCompressor.issues'] = ['AC Compressor not working', 'Compressor noise']
- */
 export type CatalogOptionsMap = Record<string, string[]>;
 
-/**
- * Full normalised catalog broken down by section for easy lookup.
- */
-export interface NormalisedCatalog {
-  /** Flat path → options map for every field in the catalog. */
-  optionsByPath: CatalogOptionsMap;
+export type RenderAs =
+  | 'boolean'
+  | 'multi-select'
+  | 'single-select'
+  | 'file-upload'
+  | 'text'
+  | 'number';
 
-  // ── Convenience accessors per section ──────────────────────────────────────
+export interface NormalisedField {
+  path: string;
+  key: string;
+  label: string;
+  inputType: FieldInputType;
+  dataType: 'STRING' | 'BOOLEAN' | 'NUMBER';
+  allowsMultiple: boolean;
+  options: CatalogOption[];
+  renderAs: RenderAs;
+}
+
+export interface NormalisedCatalog {
+  optionsByPath: CatalogOptionsMap;
+  fieldsByPath: Record<string, NormalisedField>;
+  vehicleSectionChildren: CatalogNode[];
 
   airConditioning: {
     acCompressorIssues: string[];

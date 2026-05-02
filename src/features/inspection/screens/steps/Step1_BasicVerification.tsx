@@ -1,3 +1,15 @@
+/**
+ * Step 1 — Basic Verification (Vehicle Section)
+ *
+ * New API schema (v2): each node has `inputs[]` + `children[]`.
+ * - `inputs` = direct form controls rendered at this node level
+ * - `children` = nested nodes rendered below
+ *
+ * A group node with a file-upload input + children containing issues
+ * (e.g. chassisEmbossing) renders as InspectionPhotoSummaryRow that opens
+ * InspectionImageDetailPanel with issue options pulled from the children.
+ */
+
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ScrollView,
@@ -7,138 +19,140 @@ import {
   Modal,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useInspectionStore } from '../../store/inspectionStore';
-import { InspectionStepId, YesNoNA } from '../../types';
-import YesNoSelector from '../../components/YesNoSelector';
+import { InspectionStepId } from '../../types';
 import AppInput from '../../../../components/AppInput';
 import InspectionPhotoSummaryRow from '../../components/InspectionPhotoSummaryRow';
 import InspectionImageDetailPanel from '../../components/InspectionImageDetailPanel';
+import MultiSelectChips from '../../components/MultiSelectChips';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
 import { colors } from '../../../../constants/colors';
 import { typography } from '../../../../constants/typography';
 import { spacing, verticalSpacing, borderRadius } from '../../../../constants/spacing';
-import { vs } from '../../../../utils/scaling';
-import {
-  DOCUMENT_PHOTO_ISSUE_OPTIONS,
-  DOCUMENT_PHOTO_LABELS,
-  DOCUMENT_PHOTO_URI_KEYS,
-  type DocumentPhotoDetailKey,
-} from '../../../../constants/inspectionSchema';
-import type { MediaData, PhotoIssueInspectionBlock } from '../../types';
-import { isPhotoIssueBlockComplete } from '../../utils/photoInspection';
+import type { PhotoIssueInspectionBlock } from '../../types';
 import { useCatalogViewModel, selectCatalog } from '../../../../viewmodels/catalogViewModel';
+import type {
+  CatalogNode,
+  CatalogField,
+  CatalogGroup,
+  CatalogInput,
+  CatalogOption,
+} from '../../../../services/api/types';
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-function isDocDetailOrLegacyComplete(
-  media: Partial<MediaData>,
-  detailKey: DocumentPhotoDetailKey,
-  required: boolean,
-): boolean {
-  if (!required) return true;
-  const block = media.documentPhotoDetails?.[detailKey];
-  if (block && isPhotoIssueBlockComplete(block, { requirePhoto: true, photoOnlyOk: true })) {
-    return true;
+interface ActivePhotoSlot {
+  storageKey: string;
+  label: string;
+  issueOptions: readonly string[];
+}
+
+interface MergedSection {
+  key: string;
+  label: string;
+  nodes: CatalogNode[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function cleanLabel(raw: string): string {
+  const parts = raw.split('/');
+  const last = parts[parts.length - 1].trim();
+  return last
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(' ')
+    .map(capitalise)
+    .join(' ');
+}
+
+function isGroup(node: CatalogNode): node is CatalogGroup {
+  return node.type === 'group';
+}
+
+/** Get inputs array from any node (handles both new and legacy schema). */
+function getInputs(node: CatalogNode): CatalogInput[] {
+  const g = node as CatalogGroup;
+  if (Array.isArray(g.inputs) && g.inputs.length > 0) return g.inputs;
+  // Legacy flat field
+  const f = node as CatalogField;
+  if (f.inputType) {
+    return [{
+      inputType: f.inputType,
+      dataType: f.dataType ?? 'STRING',
+      allowsMultiple: f.allowsMultiple ?? false,
+      options: f.options ?? [],
+    }];
   }
-  const legacyUriKey = DOCUMENT_PHOTO_URI_KEYS[detailKey];
-  if (legacyUriKey) {
-    const uri = (media as Record<string, string | undefined>)[legacyUriKey];
-    if (uri) return true;
+  return [];
+}
+
+/** Get children array from any node. */
+function getChildren(node: CatalogNode): CatalogNode[] {
+  return (node as CatalogGroup).children ?? [];
+}
+
+/**
+ * Collect all multi-select issue options from a node's children recursively.
+ * Used to populate the issue chips inside InspectionImageDetailPanel.
+ */
+function collectIssueOptions(children: CatalogNode[]): string[] {
+  const issues: string[] = [];
+  for (const child of children) {
+    const inputs = getInputs(child);
+    for (const input of inputs) {
+      if (input.inputType === 'multi-select') {
+        issues.push(...input.options.map((o) => String(o.label)));
+      }
+    }
+    issues.push(...collectIssueOptions(getChildren(child)));
   }
-  return false;
+  return issues;
 }
 
-// ─── sub-components ─────────────────────────────────────────────────────────
-
-interface TabBarProps {
-  activeTab: 'documents' | 'optional';
-  onSelect: (tab: 'documents' | 'optional') => void;
+function mergeByKey(nodes: CatalogNode[]): MergedSection[] {
+  const order: string[] = [];
+  const map: Record<string, MergedSection> = {};
+  for (const node of nodes) {
+    const key = node.key;
+    if (!map[key]) {
+      order.push(key);
+      map[key] = { key, label: cleanLabel(node.label), nodes: [] };
+    }
+    map[key].nodes.push(node);
+  }
+  return order.map((k) => map[k]);
 }
 
-const TabBar: React.FC<TabBarProps> = ({ activeTab, onSelect }) => (
-  <View style={tabStyles.container}>
-    {(['documents', 'optional'] as const).map((tab) => {
-      const isActive = activeTab === tab;
-      const label = tab === 'documents' ? 'Documents' : 'Optional Documents';
-      return (
-        <TouchableOpacity
-          key={tab}
-          style={[tabStyles.tab, isActive && tabStyles.tabActive]}
-          onPress={() => onSelect(tab)}
-          activeOpacity={0.75}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: isActive }}>
-          <Text style={[tabStyles.label, isActive && tabStyles.labelActive]}>
-            {label}
-          </Text>
-        </TouchableOpacity>
-      );
-    })}
-  </View>
-);
+// ─── Section icons ────────────────────────────────────────────────────────────
 
-const tabStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.sm,
-    marginBottom: verticalSpacing.base,
-    overflow: 'hidden',
-    ...Platform.select({
-      android: { elevation: 2 },
-      ios: {
-        shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 1,
-        shadowRadius: 3,
-      },
-    }),
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: verticalSpacing.sm,
-  },
-  tabActive: {
-    backgroundColor: colors.primaryLight,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.primary,
-  },
-  label: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-    color: colors.textSecondary,
-  },
-  labelActive: {
-    color: colors.primary,
-    fontWeight: typography.fontWeight.semiBold,
-  },
-});
+const SECTION_ICONS: Record<string, string> = {
+  appointmentDetails: '📋',
+  carImages: '📷',
+  vehicleDetails: '🚗',
+};
 
-// ─── progress row ────────────────────────────────────────────────────────────
+// ─── Progress bar ─────────────────────────────────────────────────────────────
 
-interface ProgressRowProps {
-  filled: number;
-  total: number;
-}
-
-const ProgressRow: React.FC<ProgressRowProps> = ({ filled, total }) => {
-  const allDone = filled === total;
+const ProgressRow: React.FC<{ filled: number; total: number }> = ({ filled, total }) => {
+  const remaining = total - filled;
+  const allDone = remaining === 0;
+  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
   return (
     <View style={progressStyles.container}>
-      <View style={progressStyles.dots}>
-        {Array.from({ length: total }).map((_, i) => (
-          <View
-            key={i}
-            style={[progressStyles.dot, i < filled ? progressStyles.dotFilled : progressStyles.dotEmpty]}
-          />
-        ))}
+      <View style={progressStyles.barTrack}>
+        <View style={[progressStyles.barFill, { width: `${pct}%` as `${number}%` }]} />
       </View>
       <Text style={[progressStyles.label, allDone && progressStyles.labelDone]}>
-        {allDone ? '✓ All required fields complete' : `${filled} of ${total} required fields complete`}
+        {allDone ? '✓ All required fields complete' : `${remaining} required field${remaining === 1 ? '' : 's'} remaining`}
       </Text>
     </View>
   );
@@ -146,130 +160,371 @@ const ProgressRow: React.FC<ProgressRowProps> = ({ filled, total }) => {
 
 const progressStyles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: borderRadius.sm,
     paddingHorizontal: spacing.base,
     paddingVertical: verticalSpacing.sm,
     marginBottom: verticalSpacing.base,
-    gap: spacing.sm,
+    gap: verticalSpacing.xs,
     ...Platform.select({
       android: { elevation: 1 },
-      ios: {
-        shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 1,
-        shadowRadius: 2,
-      },
+      ios: { shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 1, shadowRadius: 2 },
     }),
   },
-  dots: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  dot: {
-    width: spacing.sm,
-    height: spacing.sm,
-    borderRadius: borderRadius.full,
-  },
-  dotFilled: {
-    backgroundColor: colors.success,
-  },
-  dotEmpty: {
-    backgroundColor: colors.border,
-  },
-  label: {
-    fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
-    fontWeight: typography.fontWeight.medium,
-  },
-  labelDone: {
-    color: colors.success,
-    fontWeight: typography.fontWeight.semiBold,
-  },
+  barTrack: { height: 4, backgroundColor: colors.border, borderRadius: borderRadius.full, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: colors.primary, borderRadius: borderRadius.full },
+  label: { fontSize: typography.fontSize.xs, color: colors.textSecondary, fontWeight: typography.fontWeight.medium },
+  labelDone: { color: colors.success, fontWeight: typography.fontWeight.semiBold },
 });
 
-// ─── info banner ─────────────────────────────────────────────────────────────
+// ─── Tab bar ──────────────────────────────────────────────────────────────────
 
-const InfoBanner: React.FC<{ message: string }> = ({ message }) => (
-  <View style={bannerStyles.container}>
-    <Text style={bannerStyles.icon}>ℹ️</Text>
-    <Text style={bannerStyles.text}>{message}</Text>
+const SectionTabBar: React.FC<{
+  sections: MergedSection[];
+  activeKey: string;
+  onSelect: (key: string) => void;
+  filledPerSection: Record<string, number>;
+}> = ({ sections, activeKey, onSelect, filledPerSection }) => (
+  <View style={tabStyles.wrapper}>
+    {sections.map((section) => {
+      const isActive = section.key === activeKey;
+      const filled = filledPerSection[section.key] ?? 0;
+      return (
+        <TouchableOpacity
+          key={section.key}
+          style={[tabStyles.tab, isActive && tabStyles.tabActive]}
+          onPress={() => onSelect(section.key)}
+          activeOpacity={0.75}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: isActive }}>
+          <Text style={tabStyles.tabIcon}>{SECTION_ICONS[section.key] ?? '📝'}</Text>
+          <Text style={[tabStyles.tabLabel, isActive && tabStyles.tabLabelActive]} numberOfLines={1}>
+            {section.label}
+          </Text>
+          {filled > 0 && (
+            <View style={[tabStyles.badge, isActive && tabStyles.badgeActive]}>
+              <Text style={tabStyles.badgeText}>{filled}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      );
+    })}
   </View>
 );
 
-const bannerStyles = StyleSheet.create({
-  container: {
+const tabStyles = StyleSheet.create({
+  wrapper: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: colors.primaryLight,
-    borderRadius: borderRadius.sm,
-    padding: spacing.base,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
     marginBottom: verticalSpacing.base,
-    gap: spacing.sm,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
+    padding: spacing.xs,
+    gap: spacing.xs,
+    ...Platform.select({
+      android: { elevation: 2 },
+      ios: { shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
+    }),
   },
-  icon: {
-    fontSize: typography.fontSize.base,
-    lineHeight: typography.lineHeight.base,
-  },
-  text: {
-    flex: 1,
-    fontSize: typography.fontSize.xs,
-    color: colors.textPrimary,
-    fontWeight: typography.fontWeight.medium,
-    lineHeight: typography.lineHeight.sm,
-  },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: verticalSpacing.sm, paddingHorizontal: spacing.xs, borderRadius: borderRadius.sm, gap: verticalSpacing.xxs },
+  tabActive: { backgroundColor: colors.primaryLight },
+  tabIcon: { fontSize: 18 },
+  tabLabel: { fontSize: typography.fontSize.xs, fontWeight: typography.fontWeight.medium, color: colors.textSecondary, textAlign: 'center' },
+  tabLabelActive: { color: colors.primary, fontWeight: typography.fontWeight.bold },
+  badge: { backgroundColor: colors.border, borderRadius: borderRadius.full, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  badgeActive: { backgroundColor: colors.primary },
+  badgeText: { fontSize: 9, color: colors.white, fontWeight: typography.fontWeight.bold },
 });
 
-// ─── section header ───────────────────────────────────────────────────────────
+// ─── Chip selector ────────────────────────────────────────────────────────────
 
-interface SectionHeaderProps {
-  icon: string;
-  title: string;
+const ChipSelector: React.FC<{
+  label: string;
+  options: CatalogOption[];
+  value: string;
+  onChange: (val: string) => void;
+}> = ({ label, options, value, onChange }) => (
+  <View style={chipStyles.container}>
+    <Text style={chipStyles.label}>{label}</Text>
+    <View style={chipStyles.row}>
+      {options.map((opt) => {
+        const val = String(opt.value);
+        const display = opt.dataType === 'BOOLEAN' ? (val === 'true' ? 'Yes' : 'No') : opt.label;
+        const selected = value === val;
+        return (
+          <TouchableOpacity
+            key={val}
+            style={[chipStyles.chip, selected && chipStyles.chipSelected]}
+            onPress={() => onChange(val)}
+            activeOpacity={0.7}>
+            <Text style={[chipStyles.chipText, selected && chipStyles.chipTextSelected]}>{display}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  </View>
+);
+
+const chipStyles = StyleSheet.create({
+  container: { marginBottom: verticalSpacing.md },
+  label: { fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium, color: colors.textSecondary, marginBottom: verticalSpacing.sm },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chip: { borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: spacing.base, paddingVertical: verticalSpacing.sm, borderRadius: borderRadius.full, backgroundColor: colors.surface },
+  chipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  chipText: { fontSize: typography.fontSize.sm, color: colors.text, fontWeight: typography.fontWeight.medium },
+  chipTextSelected: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
+});
+
+// ─── Render handlers ──────────────────────────────────────────────────────────
+
+interface RenderHandlers {
+  formData: Record<string, unknown>;
+  photoDetails: Record<string, PhotoIssueInspectionBlock>;
+  onTextChange: (path: string, value: string) => void;
+  onSelectChange: (path: string, value: string) => void;
+  onMultiSelectChange: (path: string, values: string[]) => void;
+  onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
 }
 
-const SectionHeader: React.FC<SectionHeaderProps> = ({ icon, title }) => (
-  <View style={sectionHeaderStyles.container}>
-    <Text style={sectionHeaderStyles.icon}>{icon}</Text>
-    <Text style={sectionHeaderStyles.title}>{title}</Text>
-  </View>
-);
+// ─── Single input renderer ────────────────────────────────────────────────────
 
-const sectionHeaderStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: verticalSpacing.base,
-    gap: spacing.sm,
+/**
+ * Renders one CatalogInput for a given node path/label.
+ * For file-upload: renders InspectionPhotoSummaryRow per option slot.
+ * issueOptions are passed in from the node's children (collected externally).
+ */
+function renderInput(
+  input: CatalogInput,
+  nodePath: string,
+  nodeLabel: string,
+  issueOptions: string[],
+  handlers: RenderHandlers,
+): React.ReactNode {
+  const label = cleanLabel(nodeLabel);
+
+  if (input.inputType === 'file-upload') {
+    return input.options.map((opt) => {
+      const slotKey = `${nodePath}.${String(opt.value)}`;
+      const slotLabel = cleanLabel(opt.label);
+      const block = handlers.photoDetails[slotKey];
+      return (
+        <InspectionPhotoSummaryRow
+          key={slotKey}
+          label={slotLabel}
+          block={block}
+          onEdit={() =>
+            handlers.onPhotoSlotPress({
+              storageKey: slotKey,
+              label: slotLabel,
+              issueOptions,
+            })
+          }
+        />
+      );
+    });
+  }
+
+  if (input.inputType === 'multi-select') {
+    const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
+    return (
+      <MultiSelectChips
+        key={nodePath}
+        label={label}
+        options={input.options}
+        selected={current}
+        onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)}
+      />
+    );
+  }
+
+  if (input.inputType === 'select') {
+    const current = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    return (
+      <ChipSelector
+        key={nodePath}
+        label={label}
+        options={input.options}
+        value={current}
+        onChange={(val) => handlers.onSelectChange(nodePath, val)}
+      />
+    );
+  }
+
+  if (input.inputType === 'number') {
+    if (input.options.length > 0) {
+      return input.options.map((opt) => {
+        const fp = `${nodePath}.${String(opt.value)}`;
+        const fl = cleanLabel(opt.label);
+        const cur = String((handlers.formData[fp] as string | undefined) ?? '');
+        return (
+          <AppInput
+            key={fp}
+            label={fl}
+            value={cur}
+            onChangeText={(v) => handlers.onTextChange(fp, v)}
+            keyboardType="numeric"
+            placeholder={`Enter ${fl.toLowerCase()}`}
+          />
+        );
+      });
+    }
+    const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    return (
+      <AppInput
+        key={nodePath}
+        label={label}
+        value={cur}
+        onChangeText={(v) => handlers.onTextChange(nodePath, v)}
+        keyboardType="numeric"
+        placeholder={`Enter ${label.toLowerCase()}`}
+      />
+    );
+  }
+
+  // text — options = named sub-fields
+  if (input.options.length > 0) {
+    return input.options.map((opt) => {
+      const fp = `${nodePath}.${String(opt.value)}`;
+      const fl = cleanLabel(opt.label);
+      const cur = String((handlers.formData[fp] as string | undefined) ?? '');
+      return (
+        <AppInput
+          key={fp}
+          label={fl}
+          value={cur}
+          onChangeText={(v) => handlers.onTextChange(fp, v)}
+          placeholder={`Enter ${fl.toLowerCase()}`}
+        />
+      );
+    });
+  }
+  const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+  return (
+    <AppInput
+      key={nodePath}
+      label={label}
+      value={cur}
+      onChangeText={(v) => handlers.onTextChange(nodePath, v)}
+      placeholder={`Enter ${label.toLowerCase()}`}
+    />
+  );
+}
+
+// ─── Node renderer (recursive, module-level) ──────────────────────────────────
+
+function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers): React.ReactNode {
+  const merged = mergeByKey(nodes);
+
+  return merged.map((section) => {
+    if (section.nodes.length === 1) {
+      return renderSingleNode(section.nodes[0], handlers, section.key);
+    }
+    // Multiple nodes share the same key — one heading, all content below
+    return (
+      <View key={`${section.key}-merged`} style={nodeStyles.nestedGroup}>
+        <Text style={nodeStyles.nestedGroupLabel}>{cleanLabel(section.label)}</Text>
+        {section.nodes.map((node, idx) =>
+          renderSingleNode(node, handlers, `${section.key}-${idx}`, true),
+        )}
+      </View>
+    );
+  });
+}
+
+/**
+ * Render a single node:
+ * - Collect issue options from its children (for file-upload panels)
+ * - Render each input in node.inputs
+ * - If it's a group, recurse into children UNLESS all children were already
+ *   consumed as issue options for a file-upload (to avoid double-rendering)
+ */
+function renderSingleNode(
+  node: CatalogNode,
+  handlers: RenderHandlers,
+  keyPrefix: string,
+  skipHeading = false,
+): React.ReactNode {
+  const inputs = getInputs(node);
+  const children = getChildren(node);
+
+  // Collect issue options from children for file-upload panels
+  const issueOptions = collectIssueOptions(children);
+
+  // Determine which children are "consumed" as issue options
+  // (multi-select fields inside children that feed into the photo panel)
+  const consumedChildPaths = new Set<string>();
+  for (const child of children) {
+    const childInputs = getInputs(child);
+    if (childInputs.some((i) => i.inputType === 'multi-select')) {
+      consumedChildPaths.add(child.path);
+    }
+    // Also consume nested children of groups that only contain multi-selects
+    if (isGroup(child)) {
+      const grandChildren = getChildren(child);
+      for (const gc of grandChildren) {
+        const gcInputs = getInputs(gc);
+        if (gcInputs.some((i) => i.inputType === 'multi-select')) {
+          consumedChildPaths.add(gc.path);
+        }
+      }
+    }
+  }
+
+  const hasFileUpload = inputs.some((i) => i.inputType === 'file-upload');
+
+  // Remaining children to recurse into (not consumed as issue options)
+  const remainingChildren = children.filter((child) => {
+    if (hasFileUpload && consumedChildPaths.has(child.path)) return false;
+    // If child is a group whose only content is multi-selects consumed above, skip it
+    if (hasFileUpload && isGroup(child)) {
+      const grandChildren = getChildren(child);
+      const allConsumed = grandChildren.every((gc) => consumedChildPaths.has(gc.path));
+      if (allConsumed && grandChildren.length > 0) return false;
+    }
+    return true;
+  });
+
+  const content = (
+    <>
+      {inputs.map((input, iIdx) => (
+        <React.Fragment key={`${node.path}-input-${iIdx}`}>
+          {renderInput(input, node.path, node.label, issueOptions, handlers)}
+        </React.Fragment>
+      ))}
+      {remainingChildren.length > 0 && renderNodes(remainingChildren, handlers)}
+    </>
+  );
+
+  if (isGroup(node) && !skipHeading) {
+    return (
+      <View key={`${keyPrefix}-grp`} style={nodeStyles.nestedGroup}>
+        <Text style={nodeStyles.nestedGroupLabel}>{cleanLabel(node.label)}</Text>
+        {content}
+      </View>
+    );
+  }
+
+  return <View key={`${keyPrefix}-node`}>{content}</View>;
+}
+
+const nodeStyles = StyleSheet.create({
+  nestedGroup: {
+    marginTop: verticalSpacing.sm,
+    marginBottom: verticalSpacing.sm,
+    paddingLeft: spacing.sm,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.primaryLight,
   },
-  icon: {
-    fontSize: typography.fontSize.base,
-  },
-  title: {
-    fontSize: typography.fontSize.sm,
+  nestedGroupLabel: {
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold,
     color: colors.primary,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
+    marginBottom: verticalSpacing.sm,
   },
 });
 
-// ─── card shadow style (shared) ───────────────────────────────────────────────
-
-const cardShadow = Platform.select({
-  android: { elevation: 2 },
-  ios: {
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-  },
-}) as object;
-
-// ─── main component ───────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
   onNext: () => void;
@@ -278,245 +533,174 @@ interface Props {
 
 const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
   const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
-  const data = currentSession?.formData.basicVerification ?? {};
-  const mediaData = currentSession?.formData.media ?? { additionalImages: [] };
-  const [activeTab, setActiveTab] = useState<'documents' | 'optional'>('documents');
-  const [docModalKey, setDocModalKey] = useState<DocumentPhotoDetailKey | null>(null);
-
-  const update = useCallback(
-    (key: keyof typeof data, val: YesNoNA) => {
-      updateFormData(InspectionStepId.BasicVerification, { [key]: val });
-    },
-    [updateFormData],
-  );
-
-  const updateText = useCallback(
-    (key: string, value: string) => {
-      updateFormData(InspectionStepId.BasicVerification, { [key]: value });
-    },
-    [updateFormData],
-  );
-
   const catalog = useCatalogViewModel(selectCatalog);
-  const leadTypes = useMemo(
-    () => (catalog.vehicle.leadTypes.length ? catalog.vehicle.leadTypes : ['C2B', 'NBFC', 'PDI', 'NPDI', 'WARRANTY']),
-    [catalog.vehicle.leadTypes],
+  const loadingState = useCatalogViewModel((s) => s.loadingState);
+  const loadCatalog = useCatalogViewModel((s) => s.loadCatalog);
+
+  const formData = (currentSession?.formData.basicVerification ?? {}) as Record<string, unknown>;
+  const photoDetails = (currentSession?.formData.media?.documentPhotoDetails ?? {}) as Record<string, PhotoIssueInspectionBlock>;
+
+  const mergedSections = useMemo(
+    () => mergeByKey(catalog.vehicleSectionChildren),
+    [catalog.vehicleSectionChildren],
   );
-  const rcOptions = useMemo(
-    () => (catalog.vehicle.rcConditionOptions.length ? catalog.vehicle.rcConditionOptions : ['Original', 'Duplicate', 'Lost with photocopy']),
-    [catalog.vehicle.rcConditionOptions],
+
+  const [activeTabKey, setActiveTabKey] = useState('');
+  const resolvedActiveKey = activeTabKey || (mergedSections[0]?.key ?? '');
+
+  const [activeSlot, setActiveSlot] = useState<ActivePhotoSlot | null>(null);
+
+  const handleTextChange = useCallback(
+    (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [path]: value }),
+    [updateFormData],
   );
-
-  // Required field completion tracking
-  const requiredFieldsStatus = useMemo(() => {
-    const checks = [
-      isDocDetailOrLegacyComplete(mediaData, 'rcFront', true),
-      isDocDetailOrLegacyComplete(mediaData, 'frontMain', true),
-      isDocDetailOrLegacyComplete(mediaData, 'rearMain', true),
-      isDocDetailOrLegacyComplete(mediaData, 'vinPlate', true),
-      Boolean((data as Record<string, string>).chassisNumber),
-      Boolean((data as Record<string, string>).leadType),
-      Boolean((data as Record<string, string>).rcAvailability),
-      data.registrationStateMatches !== undefined,
-      data.duplicateKeyAvailable !== undefined,
-    ];
-    return { filled: checks.filter(Boolean).length, total: checks.length };
-  }, [mediaData, data]);
-
-  const isComplete = requiredFieldsStatus.filled === requiredFieldsStatus.total;
-
-  const handleNext = useCallback(() => {
-    if (isComplete) {
-      markStepComplete(InspectionStepId.BasicVerification);
-      onNext();
-    }
-  }, [isComplete, markStepComplete, onNext]);
-
-  const handleCloseModal = useCallback(() => setDocModalKey(null), []);
-
-  const handleDocChange = useCallback(
+  const handleSelectChange = useCallback(
+    (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [path]: value }),
+    [updateFormData],
+  );
+  const handleMultiSelectChange = useCallback(
+    (path: string, values: string[]) => updateFormData(InspectionStepId.BasicVerification, { [path]: values }),
+    [updateFormData],
+  );
+  const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
+  const handleCloseModal = useCallback(() => setActiveSlot(null), []);
+  const handlePhotoChange = useCallback(
     (block: PhotoIssueInspectionBlock) => {
-      if (!docModalKey) return;
-      const uriField = DOCUMENT_PHOTO_URI_KEYS[docModalKey];
-      const uri = block.photos?.[0] ?? '';
-      const prevDetails = mediaData.documentPhotoDetails ?? {};
+      if (!activeSlot) return;
+      const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
       updateFormData(InspectionStepId.Media, {
-        documentPhotoDetails: { ...prevDetails, [docModalKey]: block },
-        ...(uriField ? { [uriField]: uri } : {}),
+        documentPhotoDetails: { ...prev, [activeSlot.storageKey]: block },
       });
     },
-    [docModalKey, mediaData.documentPhotoDetails, updateFormData],
+    [activeSlot, currentSession?.formData.media?.documentPhotoDetails, updateFormData],
   );
+
+  // Required field counter
+  const { requiredFields, filledCount } = useMemo(() => {
+    const required: string[] = [];
+    const filled: string[] = [];
+    const checkNode = (node: CatalogNode) => {
+      const inputs = getInputs(node);
+      for (const input of inputs) {
+        if (input.inputType === 'select') {
+          required.push(node.path);
+          if (formData[node.path] !== undefined && formData[node.path] !== '') filled.push(node.path);
+        } else if (input.inputType === 'file-upload' && input.options.length > 0) {
+          const slot = `${node.path}.${input.options[0].value}`;
+          required.push(slot);
+          if (photoDetails[slot]?.photos?.[0]) filled.push(slot);
+        }
+      }
+      getChildren(node).forEach(checkNode);
+    };
+    catalog.vehicleSectionChildren.forEach(checkNode);
+    return { requiredFields: required, filledCount: filled.length };
+  }, [catalog.vehicleSectionChildren, formData, photoDetails]);
+
+  // Per-section filled count
+  const filledPerSection = useMemo(() => {
+    const result: Record<string, number> = {};
+    const countNode = (n: CatalogNode): number => {
+      let count = 0;
+      const inputs = getInputs(n);
+      for (const input of inputs) {
+        if (input.inputType === 'file-upload') {
+          input.options.forEach((opt) => {
+            if (photoDetails[`${n.path}.${opt.value}`]?.photos?.[0]) count++;
+          });
+        } else if (input.inputType === 'multi-select') {
+          const vals = formData[n.path] as string[] | undefined;
+          if (vals && vals.length > 0) count++;
+        } else {
+          const val = formData[n.path];
+          if (val !== undefined && String(val).trim().length > 0) count++;
+        }
+      }
+      getChildren(n).forEach((c) => { count += countNode(c); });
+      return count;
+    };
+    for (const section of mergedSections) {
+      result[section.key] = section.nodes.reduce((sum, n) => sum + countNode(n), 0);
+    }
+    return result;
+  }, [mergedSections, formData, photoDetails]);
+
+  const isComplete = filledCount === requiredFields.length && requiredFields.length > 0;
+
+  const handleNext = useCallback(() => {
+    if (isComplete) { markStepComplete(InspectionStepId.BasicVerification); onNext(); }
+  }, [isComplete, markStepComplete, onNext]);
+
+  const renderHandlers = useMemo<RenderHandlers>(
+    () => ({ formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange, onMultiSelectChange: handleMultiSelectChange, onPhotoSlotPress: handlePhotoSlotPress }),
+    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress],
+  );
+
+  if (loadingState === 'loading' && catalog.vehicleSectionChildren.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+        <AppHeader title="Car Details" subtitle="Step 1 of 6" onBack={onBack} />
+        <View style={styles.centred}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading form…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (loadingState === 'error' && catalog.vehicleSectionChildren.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+        <AppHeader title="Car Details" subtitle="Step 1 of 6" onBack={onBack} />
+        <View style={styles.centred}>
+          <Text style={styles.errorIcon}>⚠️</Text>
+          <Text style={styles.errorText}>Failed to load form fields.</Text>
+          <AppButton label="Retry" onPress={loadCatalog} size="sm" fullWidth={false} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const activeSection = mergedSections.find((s) => s.key === resolvedActiveKey);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <AppHeader title="Car Details" subtitle="Step 1 of 6" onBack={onBack} />
 
+      <View style={styles.progressWrap}>
+        <ProgressRow filled={filledCount} total={requiredFields.length} />
+      </View>
+
+      <View style={styles.tabWrap}>
+        <SectionTabBar
+          sections={mergedSections}
+          activeKey={resolvedActiveKey}
+          onSelect={setActiveTabKey}
+          filledPerSection={filledPerSection}
+        />
+      </View>
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
-
-        {/* Progress indicator */}
-        <ProgressRow
-          filled={requiredFieldsStatus.filled}
-          total={requiredFieldsStatus.total}
-        />
-
-        {/* Tab switcher — at the TOP before any content */}
-        <TabBar activeTab={activeTab} onSelect={setActiveTab} />
-
-        {/* Documents tab content */}
-        {activeTab === 'documents' && (
-          <>
-            <View style={[styles.section, cardShadow]}>
-              <SectionHeader icon="📄" title="Required Documents" />
-              <InspectionPhotoSummaryRow
-                label={DOCUMENT_PHOTO_LABELS.rcFront}
-                isRequired
-                block={mediaData.documentPhotoDetails?.rcFront}
-                onEdit={() => setDocModalKey('rcFront')}
-              />
-              <InspectionPhotoSummaryRow
-                label={DOCUMENT_PHOTO_LABELS.rcBack}
-                block={mediaData.documentPhotoDetails?.rcBack}
-                onEdit={() => setDocModalKey('rcBack')}
-              />
-              <InspectionPhotoSummaryRow
-                label={DOCUMENT_PHOTO_LABELS.frontMain}
-                isRequired
-                block={mediaData.documentPhotoDetails?.frontMain}
-                onEdit={() => setDocModalKey('frontMain')}
-              />
-              <InspectionPhotoSummaryRow
-                label={DOCUMENT_PHOTO_LABELS.rearMain}
-                isRequired
-                block={mediaData.documentPhotoDetails?.rearMain}
-                onEdit={() => setDocModalKey('rearMain')}
-              />
-              <InspectionPhotoSummaryRow
-                label={DOCUMENT_PHOTO_LABELS.vinPlate}
-                isRequired
-                block={mediaData.documentPhotoDetails?.vinPlate}
-                onEdit={() => setDocModalKey('vinPlate')}
-              />
-              <AppInput
-                label="Chassis Number"
-                value={(data as Record<string, string>).chassisNumber ?? ''}
-                onChangeText={(v) => updateText('chassisNumber', v.toUpperCase())}
-                autoCapitalize="characters"
-                isRequired
-              />
-              <YesNoSelector
-                label="Is Registration transferred from another state?"
-                value={data.registrationStateMatches as YesNoNA}
-                onChange={(v) => update('registrationStateMatches', v)}
-                isRequired
-              />
-              <YesNoSelector
-                label="Duplicate Key present?"
-                value={(data as { duplicateKeyAvailable?: YesNoNA }).duplicateKeyAvailable}
-                onChange={(v) => update('duplicateKeyAvailable' as keyof typeof data, v)}
-                isRequired
-              />
-
-              <Text style={styles.fieldLabel}>Lead Type *</Text>
-              <View style={styles.rowWrap}>
-                {leadTypes.map((type) => {
-                  const selected = (data as Record<string, string>).leadType === type;
-                  return (
-                    <TouchableOpacity
-                      key={type}
-                      style={[styles.chip, selected && styles.chipSelected]}
-                      onPress={() => updateText('leadType', type)}
-                      activeOpacity={0.7}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}>
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <Text style={styles.fieldLabel}>RC Availability *</Text>
-              <View style={styles.rowWrap}>
-                {rcOptions.map((option) => {
-                  const selected = (data as Record<string, string>).rcAvailability === option;
-                  return (
-                    <TouchableOpacity
-                      key={option}
-                      style={[styles.chip, selected && styles.chipSelected]}
-                      onPress={() => updateText('rcAvailability', option)}
-                      activeOpacity={0.7}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}>
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                        {option}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <InfoBanner message="Capture all mandatory images clearly before proceeding." />
-          </>
-        )}
-
-        {/* Optional documents tab content */}
-        {activeTab === 'optional' && (
-          <View style={[styles.section, cardShadow]}>
-            <SectionHeader icon="📎" title="Optional Documents" />
-            <InspectionPhotoSummaryRow
-              label={DOCUMENT_PHOTO_LABELS.cngPlate}
-              block={mediaData.documentPhotoDetails?.cngPlate}
-              onEdit={() => setDocModalKey('cngPlate')}
-            />
-            <InspectionPhotoSummaryRow
-              label={DOCUMENT_PHOTO_LABELS.cngTestCertificate}
-              block={mediaData.documentPhotoDetails?.cngTestCertificate}
-              onEdit={() => setDocModalKey('cngTestCertificate')}
-            />
-            <InspectionPhotoSummaryRow
-              label={DOCUMENT_PHOTO_LABELS.roadTaxDocument}
-              block={mediaData.documentPhotoDetails?.roadTaxDocument}
-              onEdit={() => setDocModalKey('roadTaxDocument')}
-            />
-            <InspectionPhotoSummaryRow
-              label={DOCUMENT_PHOTO_LABELS.ownerManual}
-              block={mediaData.documentPhotoDetails?.ownerManual}
-              onEdit={() => setDocModalKey('ownerManual')}
-            />
-            <InspectionPhotoSummaryRow
-              label={DOCUMENT_PHOTO_LABELS.hypothecationProof}
-              block={mediaData.documentPhotoDetails?.hypothecationProof}
-              onEdit={() => setDocModalKey('hypothecationProof')}
-            />
-            <InspectionPhotoSummaryRow
-              label={DOCUMENT_PHOTO_LABELS.addressProof}
-              block={mediaData.documentPhotoDetails?.addressProof}
-              onEdit={() => setDocModalKey('addressProof')}
-            />
+        keyboardShouldPersistTaps="handled"
+        key={resolvedActiveKey}>
+        {activeSection ? (
+          <View style={styles.sectionCard}>
+            {renderNodes(activeSection.nodes, renderHandlers)}
           </View>
-        )}
-
+        ) : null}
       </ScrollView>
 
-      {/* Document photo detail modal */}
-      <Modal
-        visible={docModalKey !== null}
-        animationType="slide"
-        onRequestClose={handleCloseModal}>
+      <Modal visible={activeSlot !== null} animationType="slide" onRequestClose={handleCloseModal}>
         <SafeAreaView style={styles.modalSafe} edges={['bottom']}>
-          {docModalKey ? (
+          {activeSlot ? (
             <InspectionImageDetailPanel
-              title={DOCUMENT_PHOTO_LABELS[docModalKey]}
-              issueOptions={DOCUMENT_PHOTO_ISSUE_OPTIONS}
-              value={mediaData.documentPhotoDetails?.[docModalKey]}
-              onChange={handleDocChange}
+              title={activeSlot.label}
+              issueOptions={activeSlot.issueOptions}
+              value={photoDetails[activeSlot.storageKey]}
+              onChange={handlePhotoChange}
               onBack={handleCloseModal}
               layout="photoFirstSubmit"
               listBackTitle="Car Details"
@@ -526,93 +710,40 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
         </SafeAreaView>
       </Modal>
 
-      {/* Footer */}
       <View style={styles.footer}>
         {!isComplete && (
           <Text style={styles.footerHint}>⚠ Complete all required fields to proceed</Text>
         )}
-        <AppButton
-          label="Next →"
-          onPress={handleNext}
-          isDisabled={!isComplete}
-          testID="step1-next-btn"
-        />
+        <AppButton label="Next →" onPress={handleNext} isDisabled={!isComplete} testID="step1-next-btn" />
       </View>
     </SafeAreaView>
   );
 };
 
-// ─── styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  modalSafe: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    padding: spacing.base,
-    paddingBottom: verticalSpacing.xxl,
-  },
-  section: {
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  modalSafe: { flex: 1, backgroundColor: colors.surface },
+  progressWrap: { paddingHorizontal: spacing.base, paddingTop: verticalSpacing.sm },
+  tabWrap: { paddingHorizontal: spacing.base, paddingBottom: verticalSpacing.xs },
+  scroll: { flex: 1 },
+  content: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
+  sectionCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     padding: spacing.base,
-    marginBottom: verticalSpacing.base,
+    ...Platform.select({
+      android: { elevation: 2 },
+      ios: { shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
+    }),
   },
-  fieldLabel: {
-    fontSize: typography.fontSize.sm,
-    color: colors.textSecondary,
-    marginBottom: verticalSpacing.sm,
-    fontWeight: typography.fontWeight.medium,
-  },
-  rowWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: verticalSpacing.md,
-    gap: spacing.sm,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.base,
-    paddingVertical: verticalSpacing.sm,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.surface,
-  },
-  chipSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
-  },
-  chipText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.text,
-    fontWeight: typography.fontWeight.medium,
-  },
-  chipTextSelected: {
-    color: colors.primary,
-    fontWeight: typography.fontWeight.semiBold,
-  },
-  // Footer
-  footer: {
-    padding: spacing.base,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  footerHint: {
-    fontSize: typography.fontSize.xs,
-    color: colors.warning,
-    textAlign: 'center',
-    marginBottom: verticalSpacing.sm,
-    fontWeight: typography.fontWeight.medium,
-  },
+  centred: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: verticalSpacing.base, padding: spacing.xl },
+  loadingText: { fontSize: typography.fontSize.sm, color: colors.textSecondary },
+  errorIcon: { fontSize: 40 },
+  errorText: { fontSize: typography.fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
+  footer: { padding: spacing.base, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
+  footerHint: { fontSize: typography.fontSize.xs, color: colors.warning, textAlign: 'center', marginBottom: verticalSpacing.sm, fontWeight: typography.fontWeight.medium },
 });
 
 export default Step1BasicVerification;

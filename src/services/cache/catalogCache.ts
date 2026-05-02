@@ -24,6 +24,24 @@ interface CacheEntry {
   cachedAt: number; // Unix timestamp ms
 }
 
+/**
+ * Validates that a cached catalog entry has the expected top-level shape.
+ * Guards against stale cache entries written by older app versions that
+ * may be missing sections added later (e.g. `vehicle`).
+ */
+function isValidCatalog(data: unknown): data is NormalisedCatalog {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.optionsByPath === 'object' &&
+    typeof d.airConditioning === 'object' &&
+    typeof d.engineTransmission === 'object' &&
+    typeof d.steeringBrakes === 'object' &&
+    typeof d.vehicle === 'object' &&
+    typeof d.electricalInteriors === 'object'
+  );
+}
+
 export const catalogCache = {
   async get(): Promise<NormalisedCatalog | null> {
     try {
@@ -35,6 +53,14 @@ export const catalogCache = {
 
       if (age > CACHE_TTL_MS) {
         // Stale — remove and return null so caller fetches fresh
+        await AsyncStorage.removeItem(CACHE_KEY);
+        return null;
+      }
+
+      // Discard cache entries that don't match the current catalog shape.
+      // This handles the case where a previous app version wrote a partial
+      // catalog (e.g. missing the `vehicle` section) that would cause crashes.
+      if (!isValidCatalog(entry.data)) {
         await AsyncStorage.removeItem(CACHE_KEY);
         return null;
       }
