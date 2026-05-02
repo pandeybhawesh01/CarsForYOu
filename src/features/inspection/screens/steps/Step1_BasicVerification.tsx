@@ -27,6 +27,7 @@ import { InspectionStepId } from '../../types';
 import AppInput from '../../../../components/AppInput';
 import InspectionPhotoSummaryRow from '../../components/InspectionPhotoSummaryRow';
 import InspectionImageDetailPanel from '../../components/InspectionImageDetailPanel';
+import PhotoCapture from '../../components/PhotoCapture';
 import MultiSelectChips from '../../components/MultiSelectChips';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
@@ -49,6 +50,12 @@ interface ActivePhotoSlot {
   storageKey: string;
   label: string;
   issueOptions: readonly string[];
+}
+
+/** A group node tapped — opens a detail modal showing all its inputs + children. */
+interface ActiveGroupNode {
+  node: CatalogGroup;
+  label: string;
 }
 
 interface MergedSection {
@@ -283,14 +290,105 @@ interface RenderHandlers {
   onSelectChange: (path: string, value: string) => void;
   onMultiSelectChange: (path: string, values: string[]) => void;
   onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
+  onGroupPress: (group: ActiveGroupNode) => void;
+  /** Direct camera capture for field-type file-upload slots (no modal). */
+  onDirectCapture: (storageKey: string, uri: string) => void;
 }
+
+// ─── Single input renderer ────────────────────────────────────────────────────
+
+// ─── Group photo card (for type:"group" file-upload nodes) ───────────────────
+
+/**
+ * Tappable card for any group node.
+ * Shows: 📷 icon + group label + › chevron.
+ * Tapping opens a detail modal with the group's full content.
+ */
+const GroupPhotoCard: React.FC<{
+  label: string;
+  hasContent: boolean;
+  onPress: () => void;
+}> = ({ label, hasContent, onPress }) => (
+  <TouchableOpacity
+    style={groupCardStyles.card}
+    onPress={onPress}
+    activeOpacity={0.75}
+    accessibilityRole="button">
+    <View style={groupCardStyles.iconWrap}>
+      <Text style={groupCardStyles.icon}>📷</Text>
+      {hasContent && <View style={groupCardStyles.doneDot} />}
+    </View>
+    <View style={groupCardStyles.body}>
+      <Text style={groupCardStyles.label}>{label}</Text>
+      <Text style={groupCardStyles.sub}>
+        {hasContent ? '✓ Submitted' : 'Tap to capture & review'}
+      </Text>
+    </View>
+    <Text style={groupCardStyles.chevron}>›</Text>
+  </TouchableOpacity>
+);
+
+const groupCardStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: borderRadius.md,
+    padding: spacing.base,
+    marginBottom: verticalSpacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    gap: spacing.sm,
+  },
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  icon: {
+    fontSize: 22,
+  },
+  doneDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.success,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+  },
+  body: {
+    flex: 1,
+  },
+  label: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  sub: {
+    fontSize: typography.fontSize.xs,
+    color: colors.textSecondary,
+  },
+  chevron: {
+    fontSize: 22,
+    color: colors.textSecondary,
+    fontWeight: typography.fontWeight.bold,
+  },
+});
 
 // ─── Single input renderer ────────────────────────────────────────────────────
 
 /**
  * Renders one CatalogInput for a given node path/label.
- * For file-upload: renders InspectionPhotoSummaryRow per option slot.
- * issueOptions are passed in from the node's children (collected externally).
+ *
+ * nodeIsGroup = true  → file-upload renders as a single GroupPhotoCard (label + chevron)
+ * nodeIsGroup = false → file-upload renders as individual InspectionPhotoSummaryRow per option
  */
 function renderInput(
   input: CatalogInput,
@@ -298,26 +396,37 @@ function renderInput(
   nodeLabel: string,
   issueOptions: string[],
   handlers: RenderHandlers,
+  nodeIsGroup: boolean,
 ): React.ReactNode {
   const label = cleanLabel(nodeLabel);
 
   if (input.inputType === 'file-upload') {
+    if (nodeIsGroup) {
+      // This path is kept for safety but groups are now handled in renderSingleNode
+      const storageKey = `${nodePath}.${String(input.options[0]?.value ?? 'photo')}`;
+      const block = handlers.photoDetails[storageKey];
+      const issueOpts = issueOptions;
+      return (
+        <InspectionPhotoSummaryRow
+          key={nodePath}
+          label={cleanLabel(nodeLabel)}
+          block={block}
+          onEdit={() => handlers.onPhotoSlotPress({ storageKey, label: cleanLabel(nodeLabel), issueOptions: issueOpts })}
+        />
+      );
+    }
+    // Field node: one PhotoCapture per option slot — direct camera, no modal
     return input.options.map((opt) => {
       const slotKey = `${nodePath}.${String(opt.value)}`;
       const slotLabel = cleanLabel(opt.label);
       const block = handlers.photoDetails[slotKey];
+      const capturedUri = block?.photos?.[0];
       return (
-        <InspectionPhotoSummaryRow
+        <PhotoCapture
           key={slotKey}
           label={slotLabel}
-          block={block}
-          onEdit={() =>
-            handlers.onPhotoSlotPress({
-              storageKey: slotKey,
-              label: slotLabel,
-              issueOptions,
-            })
-          }
+          imageUri={capturedUri}
+          onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)}
         />
       );
     });
@@ -411,19 +520,18 @@ function renderInput(
 
 // ─── Node renderer (recursive, module-level) ──────────────────────────────────
 
-function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers): React.ReactNode {
+function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers, depth = 0): React.ReactNode {
   const merged = mergeByKey(nodes);
 
   return merged.map((section) => {
     if (section.nodes.length === 1) {
-      return renderSingleNode(section.nodes[0], handlers, section.key);
+      return renderSingleNode(section.nodes[0], handlers, section.key, depth);
     }
-    // Multiple nodes share the same key — one heading, all content below
+    // Multiple nodes share the same key — render all under one wrapper (no heading)
     return (
-      <View key={`${section.key}-merged`} style={nodeStyles.nestedGroup}>
-        <Text style={nodeStyles.nestedGroupLabel}>{cleanLabel(section.label)}</Text>
+      <View key={`${section.key}-merged`}>
         {section.nodes.map((node, idx) =>
-          renderSingleNode(node, handlers, `${section.key}-${idx}`, true),
+          renderSingleNode(node, handlers, `${section.key}-${idx}`, depth),
         )}
       </View>
     );
@@ -431,79 +539,80 @@ function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers): React.Reac
 }
 
 /**
- * Render a single node:
- * - Collect issue options from its children (for file-upload panels)
- * - Render each input in node.inputs
- * - If it's a group, recurse into children UNLESS all children were already
- *   consumed as issue options for a file-upload (to avoid double-rendering)
+ * Render a single node.
+ *
+ * depth === 0 → top-level section node (appointmentDetails, vehicleDetails, carImages).
+ *   Groups at this depth render their content INLINE — they are the tab sections themselves.
+ *
+ * depth >= 1 → nested node (e.g. chassisEmbossing inside vehicleDetails).
+ *   Groups at this depth render as a tappable GroupPhotoCard.
+ *   Fields render their inputs inline.
  */
 function renderSingleNode(
   node: CatalogNode,
   handlers: RenderHandlers,
   keyPrefix: string,
-  skipHeading = false,
+  depth = 0,
 ): React.ReactNode {
-  const inputs = getInputs(node);
-  const children = getChildren(node);
+  if (isGroup(node)) {
+    if (depth >= 1) {
+      // Nested group → tappable card
+      const inputs = getInputs(node);
+      const children = getChildren(node);
+      const hasContent =
+        inputs.some((inp) =>
+          inp.inputType === 'file-upload' &&
+          inp.options.some((opt) =>
+            handlers.photoDetails[`${node.path}.${String(opt.value)}`]?.photos?.[0],
+          ),
+        ) ||
+        children.some((child) => {
+          const val = handlers.formData[child.path];
+          return val !== undefined && String(val).trim().length > 0;
+        });
 
-  // Collect issue options from children for file-upload panels
-  const issueOptions = collectIssueOptions(children);
-
-  // Determine which children are "consumed" as issue options
-  // (multi-select fields inside children that feed into the photo panel)
-  const consumedChildPaths = new Set<string>();
-  for (const child of children) {
-    const childInputs = getInputs(child);
-    if (childInputs.some((i) => i.inputType === 'multi-select')) {
-      consumedChildPaths.add(child.path);
+      return (
+        <GroupPhotoCard
+          key={`${keyPrefix}-card`}
+          label={cleanLabel(node.label)}
+          hasContent={hasContent}
+          onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })}
+        />
+      );
     }
-    // Also consume nested children of groups that only contain multi-selects
-    if (isGroup(child)) {
-      const grandChildren = getChildren(child);
-      for (const gc of grandChildren) {
-        const gcInputs = getInputs(gc);
-        if (gcInputs.some((i) => i.inputType === 'multi-select')) {
-          consumedChildPaths.add(gc.path);
-        }
-      }
-    }
-  }
 
-  const hasFileUpload = inputs.some((i) => i.inputType === 'file-upload');
+    // depth === 0 → top-level group, render content inline
+    const inputs = getInputs(node);
+    const children = getChildren(node);
+    const issueOptions = collectIssueOptions(children);
 
-  // Remaining children to recurse into (not consumed as issue options)
-  const remainingChildren = children.filter((child) => {
-    if (hasFileUpload && consumedChildPaths.has(child.path)) return false;
-    // If child is a group whose only content is multi-selects consumed above, skip it
-    if (hasFileUpload && isGroup(child)) {
-      const grandChildren = getChildren(child);
-      const allConsumed = grandChildren.every((gc) => consumedChildPaths.has(gc.path));
-      if (allConsumed && grandChildren.length > 0) return false;
-    }
-    return true;
-  });
-
-  const content = (
-    <>
-      {inputs.map((input, iIdx) => (
-        <React.Fragment key={`${node.path}-input-${iIdx}`}>
-          {renderInput(input, node.path, node.label, issueOptions, handlers)}
-        </React.Fragment>
-      ))}
-      {remainingChildren.length > 0 && renderNodes(remainingChildren, handlers)}
-    </>
-  );
-
-  if (isGroup(node) && !skipHeading) {
     return (
-      <View key={`${keyPrefix}-grp`} style={nodeStyles.nestedGroup}>
-        <Text style={nodeStyles.nestedGroupLabel}>{cleanLabel(node.label)}</Text>
-        {content}
+      <View key={`${keyPrefix}-node`}>
+        {inputs.map((input, iIdx) => (
+          <React.Fragment key={`${node.path}-input-${iIdx}`}>
+            {renderInput(input, node.path, node.label, issueOptions, handlers, false)}
+          </React.Fragment>
+        ))}
+        {children.length > 0 && renderNodes(children, handlers, depth + 1)}
       </View>
     );
   }
 
-  return <View key={`${keyPrefix}-node`}>{content}</View>;
+  // Field node — render inputs inline at any depth
+  const inputs = getInputs(node);
+  const children = getChildren(node);
+  const issueOptions = collectIssueOptions(children);
+
+  return (
+    <View key={`${keyPrefix}-node`}>
+      {inputs.map((input, iIdx) => (
+        <React.Fragment key={`${node.path}-input-${iIdx}`}>
+          {renderInput(input, node.path, node.label, issueOptions, handlers, false)}
+        </React.Fragment>
+      ))}
+      {children.length > 0 && renderNodes(children, handlers, depth + 1)}
+    </View>
+  );
 }
 
 const nodeStyles = StyleSheet.create({
@@ -549,6 +658,7 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
   const resolvedActiveKey = activeTabKey || (mergedSections[0]?.key ?? '');
 
   const [activeSlot, setActiveSlot] = useState<ActivePhotoSlot | null>(null);
+  const [activeGroupNode, setActiveGroupNode] = useState<ActiveGroupNode | null>(null);
 
   const handleTextChange = useCallback(
     (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [path]: value }),
@@ -564,6 +674,22 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
   );
   const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
   const handleCloseModal = useCallback(() => setActiveSlot(null), []);
+  const handleGroupPress = useCallback((group: ActiveGroupNode) => setActiveGroupNode(group), []);
+  const handleCloseGroupModal = useCallback(() => setActiveGroupNode(null), []);
+
+  const handleDirectCapture = useCallback(
+    (storageKey: string, uri: string) => {
+      const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+      const existing = prev[storageKey] ?? {};
+      updateFormData(InspectionStepId.Media, {
+        documentPhotoDetails: {
+          ...prev,
+          [storageKey]: { ...existing, photos: uri ? [uri] : [], status: uri ? 'good' : undefined },
+        },
+      });
+    },
+    [currentSession?.formData.media?.documentPhotoDetails, updateFormData],
+  );
   const handlePhotoChange = useCallback(
     (block: PhotoIssueInspectionBlock) => {
       if (!activeSlot) return;
@@ -632,8 +758,17 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
   }, [isComplete, markStepComplete, onNext]);
 
   const renderHandlers = useMemo<RenderHandlers>(
-    () => ({ formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange, onMultiSelectChange: handleMultiSelectChange, onPhotoSlotPress: handlePhotoSlotPress }),
-    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress],
+    () => ({
+      formData,
+      photoDetails,
+      onTextChange: handleTextChange,
+      onSelectChange: handleSelectChange,
+      onMultiSelectChange: handleMultiSelectChange,
+      onPhotoSlotPress: handlePhotoSlotPress,
+      onGroupPress: handleGroupPress,
+      onDirectCapture: handleDirectCapture,
+    }),
+    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress, handleGroupPress, handleDirectCapture],
   );
 
   if (loadingState === 'loading' && catalog.vehicleSectionChildren.length === 0) {
@@ -710,6 +845,43 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
         </SafeAreaView>
       </Modal>
 
+      {/* Group detail modal — renders the group's full inputs + children */}
+      <Modal visible={activeGroupNode !== null} animationType="slide" onRequestClose={handleCloseGroupModal}>
+        <SafeAreaView style={styles.modalSafe} edges={['bottom']}>
+          {activeGroupNode ? (
+            <>
+              <AppHeader
+                title={activeGroupNode.label}
+                subtitle="Car Details"
+                onBack={handleCloseGroupModal}
+                variant="primary"
+              />
+              <ScrollView
+                contentContainerStyle={styles.groupModalContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled">
+                {(() => {
+                  const node = activeGroupNode.node;
+                  const inputs = getInputs(node);
+                  const children = getChildren(node);
+                  const issueOptions = collectIssueOptions(children);
+                  return (
+                    <>
+                      {inputs.map((input, iIdx) => (
+                        <React.Fragment key={`group-modal-input-${iIdx}`}>
+                          {renderInput(input, node.path, node.label, issueOptions, renderHandlers, false)}
+                        </React.Fragment>
+                      ))}
+                      {children.length > 0 && renderNodes(children, renderHandlers, 1)}
+                    </>
+                  );
+                })()}
+              </ScrollView>
+            </>
+          ) : null}
+        </SafeAreaView>
+      </Modal>
+
       <View style={styles.footer}>
         {!isComplete && (
           <Text style={styles.footerHint}>⚠ Complete all required fields to proceed</Text>
@@ -744,6 +916,7 @@ const styles = StyleSheet.create({
   errorText: { fontSize: typography.fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
   footer: { padding: spacing.base, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
   footerHint: { fontSize: typography.fontSize.xs, color: colors.warning, textAlign: 'center', marginBottom: verticalSpacing.sm, fontWeight: typography.fontWeight.medium },
+  groupModalContent: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
 });
 
 export default Step1BasicVerification;
