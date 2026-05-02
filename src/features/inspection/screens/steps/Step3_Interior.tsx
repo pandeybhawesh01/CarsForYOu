@@ -1,353 +1,334 @@
-﻿import React, { useMemo, useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+﻿/**
+ * Step 3 — Steering & Brakes
+ * Catalog-driven, same rules as Step 1, 2, and 4.
+ * Top-level groups (depth 0) render inline.
+ * Nested groups (depth >= 1) render as tappable GroupCards.
+ */
+import React, { useCallback, useMemo, useState } from 'react';
+import { ScrollView, View, Text, StyleSheet, Modal, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useInspectionStore } from '../../store/inspectionStore';
+import { InspectionStepId } from '../../types';
+import AppInput from '../../../../components/AppInput';
+import InspectionImageDetailPanel from '../../components/InspectionImageDetailPanel';
+import PhotoCapture from '../../components/PhotoCapture';
+import MultiSelectChips from '../../components/MultiSelectChips';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
 import { colors } from '../../../../constants/colors';
-import { borderRadius, spacing } from '../../../../constants/spacing';
 import { typography } from '../../../../constants/typography';
-import { vs } from '../../../../utils/scaling';
+import { spacing, verticalSpacing, borderRadius } from '../../../../constants/spacing';
+import type { PhotoIssueInspectionBlock } from '../../types';
 import { useCatalogViewModel, selectCatalog } from '../../../../viewmodels/catalogViewModel';
+import type { CatalogNode, CatalogField, CatalogGroup, CatalogInput, CatalogOption } from '../../../../services/api/types';
 
-interface Props {
-  onNext: () => void;
-  onBack: () => void;
+interface ActivePhotoSlot { storageKey: string; label: string; issueOptions: readonly string[]; }
+interface ActiveGroupNode { node: CatalogGroup; label: string; }
+interface MergedSection { key: string; label: string; nodes: CatalogNode[]; }
+
+function capitalise(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
+function cleanLabel(raw: string): string {
+  const last = raw.split('/').pop()!.trim();
+  return last.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(' ').map(capitalise).join(' ');
+}
+function isGroup(node: CatalogNode): node is CatalogGroup { return node.type === 'group'; }
+function getInputs(node: CatalogNode): CatalogInput[] {
+  const g = node as CatalogGroup;
+  if (Array.isArray(g.inputs) && g.inputs.length > 0) return g.inputs;
+  const f = node as CatalogField;
+  if (f.inputType) return [{ inputType: f.inputType, dataType: f.dataType ?? 'STRING', allowsMultiple: f.allowsMultiple ?? false, options: f.options ?? [] }];
+  return [];
+}
+function getChildren(node: CatalogNode): CatalogNode[] { return (node as CatalogGroup).children ?? []; }
+function collectIssueOptions(children: CatalogNode[]): string[] {
+  const issues: string[] = [];
+  for (const child of children) {
+    getInputs(child).forEach((inp) => { if (inp.inputType === 'multi-select') issues.push(...inp.options.map((o) => String(o.label))); });
+    issues.push(...collectIssueOptions(getChildren(child)));
+  }
+  return issues;
+}
+function mergeByKey(nodes: CatalogNode[]): MergedSection[] {
+  const order: string[] = []; const map: Record<string, MergedSection> = {};
+  for (const node of nodes) {
+    if (!map[node.key]) { order.push(node.key); map[node.key] = { key: node.key, label: cleanLabel(node.label), nodes: [] }; }
+    map[node.key].nodes.push(node);
+  }
+  return order.map((k) => map[k]);
 }
 
-type SectionKey = 'steering' | 'brake' | 'suspension';
+interface RenderHandlers {
+  formData: Record<string, unknown>; photoDetails: Record<string, PhotoIssueInspectionBlock>;
+  onTextChange: (path: string, value: string) => void; onSelectChange: (path: string, value: string) => void;
+  onMultiSelectChange: (path: string, values: string[]) => void; onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
+  onGroupPress: (group: ActiveGroupNode) => void; onDirectCapture: (storageKey: string, uri: string) => void;
+}
 
-type IssueMap = Record<SectionKey, string[]>;
+const ChipSelector: React.FC<{ label: string; options: CatalogOption[]; value: string; onChange: (val: string) => void }> = ({ label, options, value, onChange }) => (
+  <View style={chipS.container}>
+    <Text style={chipS.label}>{label}</Text>
+    <View style={chipS.row}>
+      {options.map((opt) => { const val = String(opt.value); const display = opt.dataType === 'BOOLEAN' ? (val === 'true' ? 'Yes' : 'No') : opt.label; const sel = value === val;
+        return <TouchableOpacity key={val} style={[chipS.chip, sel && chipS.chipSel]} onPress={() => onChange(val)} activeOpacity={0.7}><Text style={[chipS.text, sel && chipS.textSel]}>{display}</Text></TouchableOpacity>; })}
+    </View>
+  </View>
+);
+const chipS = StyleSheet.create({
+  container: { marginBottom: verticalSpacing.md }, label: { fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium, color: colors.textSecondary, marginBottom: verticalSpacing.sm },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, chip: { borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: spacing.base, paddingVertical: verticalSpacing.sm, borderRadius: borderRadius.full, backgroundColor: colors.surface },
+  chipSel: { borderColor: colors.primary, backgroundColor: colors.primaryLight }, text: { fontSize: typography.fontSize.sm, color: colors.text, fontWeight: typography.fontWeight.medium }, textSel: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
+});
 
-const SECTION_TITLES: Record<SectionKey, string> = {
-  steering: 'Steering',
-  brake: 'Brake',
-  suspension: 'Suspension',
-};
+const GroupCard: React.FC<{ label: string; hasContent: boolean; onPress: () => void }> = ({ label, hasContent, onPress }) => (
+  <TouchableOpacity style={gcS.card} onPress={onPress} activeOpacity={0.75} accessibilityRole="button">
+    <View style={gcS.iconWrap}><Text style={gcS.icon}>📷</Text>{hasContent && <View style={gcS.dot} />}</View>
+    <View style={gcS.body}><Text style={gcS.label}>{label}</Text><Text style={gcS.sub}>{hasContent ? '✓ Submitted' : 'Tap to capture & review'}</Text></View>
+    <Text style={gcS.chevron}>›</Text>
+  </TouchableOpacity>
+);
+const gcS = StyleSheet.create({
+  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSecondary, borderRadius: borderRadius.md, padding: spacing.base, marginBottom: verticalSpacing.md, borderWidth: 1, borderColor: colors.borderLight, gap: spacing.sm },
+  iconWrap: { width: 44, height: 44, borderRadius: borderRadius.sm, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' }, icon: { fontSize: 22 },
+  dot: { position: 'absolute', top: 2, right: 2, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.success, borderWidth: 1.5, borderColor: colors.surface },
+  body: { flex: 1 }, label: { fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semiBold, color: colors.text, marginBottom: 2 }, sub: { fontSize: typography.fontSize.xs, color: colors.textSecondary },
+  chevron: { fontSize: 22, color: colors.textSecondary, fontWeight: typography.fontWeight.bold },
+});
 
-const SECTION_ICONS: Record<SectionKey, string> = {
-  steering: '🔄',
-  brake: '🛑',
-  suspension: '🔧',
-};
+function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, issueOptions: string[], handlers: RenderHandlers): React.ReactNode {
+  const label = cleanLabel(nodeLabel);
+  if (input.inputType === 'file-upload') {
+    return input.options.map((opt) => { const slotKey = `${nodePath}.${String(opt.value)}`; const slotLabel = opt.label.toLowerCase() === 'image' ? label : cleanLabel(opt.label); const block = handlers.photoDetails[slotKey];
+      return <PhotoCapture key={slotKey} label={slotLabel} imageUri={block?.photos?.[0]} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />; });
+  }
+  if (input.inputType === 'multi-select') {
+    const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
+    return <MultiSelectChips key={nodePath} label={label} options={input.options} selected={current} onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)} />;
+  }
+  if (input.inputType === 'select') {
+    const current = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    const selectedOpt = input.options.find((o) => String(o.value) === current);
+    const subOpts = selectedOpt?.subOptions1 ?? [];
+    return (
+      <React.Fragment key={nodePath}>
+        <ChipSelector label={label} options={input.options} value={current} onChange={(val) => handlers.onSelectChange(nodePath, val)} />
+        {subOpts.map((sub, sIdx) => {
+          const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
+          const subPath = `${nodePath}.${String(sub.value)}`; const subLabel = cleanLabel(sub.label);
+          if (subInputType === 'multi-select') {
+            const s2 = ((sub as unknown as Record<string, unknown[]>).subOptions2 ?? []).map((x) => ({ value: (x as Record<string, unknown>).value as string, label: (x as Record<string, unknown>).label as string, dataType: 'STRING' as const, subOptions1: [] }));
+            const cur = (handlers.formData[subPath] as string[] | undefined) ?? [];
+            return <MultiSelectChips key={`${nodePath}-sub-${sIdx}`} label={subLabel} options={s2} selected={cur} onChange={(vals) => handlers.onMultiSelectChange(subPath, vals)} />;
+          }
+          return null;
+        })}
+      </React.Fragment>
+    );
+  }
+  if (input.inputType === 'number') {
+    if (input.options.length > 0) return input.options.map((opt) => { const fp = `${nodePath}.${String(opt.value)}`; const fl = cleanLabel(opt.label); const cur = String((handlers.formData[fp] as string | undefined) ?? ''); return <AppInput key={fp} label={fl} value={cur} onChangeText={(v) => handlers.onTextChange(fp, v)} keyboardType="numeric" placeholder={`Enter ${fl.toLowerCase()}`} />; });
+    const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    return <AppInput key={nodePath} label={label} value={cur} onChangeText={(v) => handlers.onTextChange(nodePath, v)} keyboardType="numeric" placeholder={`Enter ${label.toLowerCase()}`} />;
+  }
+  if (input.options.length > 0) return input.options.map((opt) => { const fp = `${nodePath}.${String(opt.value)}`; const fl = cleanLabel(opt.label); const cur = String((handlers.formData[fp] as string | undefined) ?? ''); return <AppInput key={fp} label={fl} value={cur} onChangeText={(v) => handlers.onTextChange(fp, v)} placeholder={`Enter ${fl.toLowerCase()}`} />; });
+  const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+  return <AppInput key={nodePath} label={label} value={cur} onChangeText={(v) => handlers.onTextChange(nodePath, v)} placeholder={`Enter ${label.toLowerCase()}`} />;
+}
 
-const MODAL_BACKDROP_COLOR = 'rgba(0,0,0,0.55)';
-
-const Step3Interior: React.FC<Props> = ({ onNext, onBack }) => {
-  const catalog = useCatalogViewModel(selectCatalog);
-  const sb = catalog.steeringBrakes;
-
-  // Issue options sourced from catalog, with hardcoded fallbacks
-  const ISSUE_OPTIONS: Record<SectionKey, string[]> = useMemo(
-    () => ({
-      steering: sb.steeringIssues.length
-        ? sb.steeringIssues
-        : ['Hard steering movement', 'Steering wheel vibration', 'Steering play too high', 'Power steering warning light'],
-      brake: sb.brakesIssues.length
-        ? sb.brakesIssues
-        : ['Brake pedal too soft', 'Brake noise while stopping', 'Handbrake not holding', 'ABS warning light on'],
-      suspension: sb.suspensionIssues.length
-        ? sb.suspensionIssues
-        : ['Uneven ride height', 'Suspension knocking noise', 'Excessive body roll', 'Shock absorber leakage'],
-    }),
-    [sb],
-  );
-  const [selectedIssues, setSelectedIssues] = useState<IssueMap>({
-    steering: [],
-    brake: [],
-    suspension: [],
+function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers, depth = 0): React.ReactNode {
+  return mergeByKey(nodes).map((section) => {
+    if (section.nodes.length === 1) return renderSingleNode(section.nodes[0], handlers, section.key, depth);
+    return <View key={`${section.key}-merged`}>{section.nodes.map((node, idx) => renderSingleNode(node, handlers, `${section.key}-${idx}`, depth))}</View>;
   });
-  const [activeModal, setActiveModal] = useState<SectionKey | null>(null);
+}
 
-  const sections: SectionKey[] = ['steering', 'brake', 'suspension'];
-
-  const toggleIssue = (section: SectionKey, issue: string) => {
-    setSelectedIssues((prev) => {
-      const alreadySelected = prev[section].includes(issue);
-      return {
-        ...prev,
-        [section]: alreadySelected
-          ? prev[section].filter((item) => item !== issue)
-          : [...prev[section], issue],
-      };
-    });
-  };
-
-  const summary = useMemo(
-    () =>
-      sections.map((section) => {
-        const count = selectedIssues[section].length;
-        const status = count === 0 ? 'OK' : 'Needs Attention';
-        return {
-          section,
-          title: SECTION_TITLES[section],
-          icon: SECTION_ICONS[section],
-          count,
-          status,
-        };
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectedIssues],
+function renderSingleNode(node: CatalogNode, handlers: RenderHandlers, keyPrefix: string, depth = 0): React.ReactNode {
+  if (isGroup(node)) {
+    if (depth >= 1) {
+      const inputs = getInputs(node); const children = getChildren(node);
+      const hasContent = inputs.some((inp) => inp.inputType === 'file-upload' && inp.options.some((opt) => handlers.photoDetails[`${node.path}.${String(opt.value)}`]?.photos?.[0])) || children.some((child) => { const val = handlers.formData[child.path]; return val !== undefined && String(val).trim().length > 0; });
+      return <GroupCard key={`${keyPrefix}-card`} label={cleanLabel(node.label)} hasContent={hasContent} onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })} />;
+    }
+    const inputs = getInputs(node); const children = getChildren(node); const issueOptions = collectIssueOptions(children);
+    return (
+      <View key={`${keyPrefix}-node`}>
+        {inputs.map((input, iIdx) => <React.Fragment key={`${node.path}-input-${iIdx}`}>{renderInput(input, node.path, node.label, issueOptions, handlers)}</React.Fragment>)}
+        {children.length > 0 && renderNodes(children, handlers, depth + 1)}
+      </View>
+    );
+  }
+  const inputs = getInputs(node); const children = getChildren(node); const issueOptions = collectIssueOptions(children);
+  return (
+    <View key={`${keyPrefix}-node`}>
+      {inputs.map((input, iIdx) => <React.Fragment key={`${node.path}-input-${iIdx}`}>{renderInput(input, node.path, node.label, issueOptions, handlers)}</React.Fragment>)}
+      {children.length > 0 && renderNodes(children, handlers, depth + 1)}
+    </View>
   );
+}
+
+const ProgressRow: React.FC<{ filled: number; total: number }> = ({ filled, total }) => {
+  const remaining = total - filled; const allDone = remaining === 0; const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+  return (
+    <View style={prS.container}>
+      <View style={prS.track}><View style={[prS.fill, { width: `${pct}%` as `${number}%` }]} /></View>
+      <Text style={[prS.label, allDone && prS.done]}>{allDone ? '✓ All required fields complete' : `${remaining} required field${remaining === 1 ? '' : 's'} remaining`}</Text>
+    </View>
+  );
+};
+const prS = StyleSheet.create({
+  container: { backgroundColor: colors.surface, borderRadius: borderRadius.sm, paddingHorizontal: spacing.base, paddingVertical: verticalSpacing.sm, marginBottom: verticalSpacing.base, gap: verticalSpacing.xs, ...Platform.select({ android: { elevation: 1 }, ios: { shadowColor: colors.shadow, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 1, shadowRadius: 2 } }) },
+  track: { height: 4, backgroundColor: colors.border, borderRadius: borderRadius.full, overflow: 'hidden' }, fill: { height: '100%', backgroundColor: colors.primary, borderRadius: borderRadius.full },
+  label: { fontSize: typography.fontSize.xs, color: colors.textSecondary, fontWeight: typography.fontWeight.medium }, done: { color: colors.success, fontWeight: typography.fontWeight.semiBold },
+});
+
+const TabBar: React.FC<{ sections: MergedSection[]; activeKey: string; onSelect: (key: string) => void; filledPerSection: Record<string, number> }> = ({ sections, activeKey, onSelect, filledPerSection }) => (
+  <View style={tbS.wrapper}>
+    {sections.map((section) => { const isActive = section.key === activeKey; const filled = filledPerSection[section.key] ?? 0;
+      return (
+        <TouchableOpacity key={section.key} style={[tbS.tab, isActive && tbS.tabActive]} onPress={() => onSelect(section.key)} activeOpacity={0.75} accessibilityRole="tab" accessibilityState={{ selected: isActive }}>
+          <Text style={[tbS.label, isActive && tbS.labelActive]} numberOfLines={1}>{section.label}</Text>
+          {filled > 0 && <View style={[tbS.badge, isActive && tbS.badgeActive]}><Text style={tbS.badgeText}>{filled}</Text></View>}
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+);
+const tbS = StyleSheet.create({
+  wrapper: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: borderRadius.md, marginBottom: verticalSpacing.base, padding: spacing.xs, gap: spacing.xs, ...Platform.select({ android: { elevation: 2 }, ios: { shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 } }) },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: verticalSpacing.sm, paddingHorizontal: spacing.xs, borderRadius: borderRadius.sm, gap: verticalSpacing.xxs }, tabActive: { backgroundColor: colors.primaryLight },
+  label: { fontSize: typography.fontSize.xs, fontWeight: typography.fontWeight.medium, color: colors.textSecondary, textAlign: 'center' }, labelActive: { color: colors.primary, fontWeight: typography.fontWeight.bold },
+  badge: { backgroundColor: colors.border, borderRadius: borderRadius.full, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }, badgeActive: { backgroundColor: colors.primary },
+  badgeText: { fontSize: 9, color: colors.white, fontWeight: typography.fontWeight.bold },
+});
+
+interface Props { onNext: () => void; onBack: () => void; }
+
+const Step3SteeringBrakes: React.FC<Props> = ({ onNext, onBack }) => {
+  const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
+  const catalog = useCatalogViewModel(selectCatalog);
+  const loadingState = useCatalogViewModel((s) => s.loadingState);
+  const loadCatalog = useCatalogViewModel((s) => s.loadCatalog);
+
+  const formData = (currentSession?.formData.interior ?? {}) as Record<string, unknown>;
+  const photoDetails = (currentSession?.formData.media?.documentPhotoDetails ?? {}) as Record<string, PhotoIssueInspectionBlock>;
+  const sectionNodes = catalog.steeringBrakesSectionChildren;
+  const mergedSections = useMemo(() => mergeByKey(sectionNodes), [sectionNodes]);
+
+  const [activeTabKey, setActiveTabKey] = useState('');
+  const resolvedActiveKey = activeTabKey || (mergedSections[0]?.key ?? '');
+  const [activeSlot, setActiveSlot] = useState<ActivePhotoSlot | null>(null);
+  const [activeGroupNode, setActiveGroupNode] = useState<ActiveGroupNode | null>(null);
+
+  const handleTextChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Interior, { [path]: value }), [updateFormData]);
+  const handleSelectChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Interior, { [path]: value }), [updateFormData]);
+  const handleMultiSelectChange = useCallback((path: string, values: string[]) => updateFormData(InspectionStepId.Interior, { [path]: values }), [updateFormData]);
+  const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
+  const handleCloseModal = useCallback(() => setActiveSlot(null), []);
+  const handleGroupPress = useCallback((group: ActiveGroupNode) => setActiveGroupNode(group), []);
+  const handleCloseGroupModal = useCallback(() => setActiveGroupNode(null), []);
+  const handleDirectCapture = useCallback((storageKey: string, uri: string) => {
+    const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+    updateFormData(InspectionStepId.Media, { documentPhotoDetails: { ...prev, [storageKey]: { ...(prev[storageKey] ?? {}), photos: uri ? [uri] : [], status: uri ? 'good' : undefined } } });
+  }, [currentSession?.formData.media?.documentPhotoDetails, updateFormData]);
+  const handlePhotoChange = useCallback((block: PhotoIssueInspectionBlock) => {
+    if (!activeSlot) return;
+    const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+    updateFormData(InspectionStepId.Media, { documentPhotoDetails: { ...prev, [activeSlot.storageKey]: block } });
+  }, [activeSlot, currentSession?.formData.media?.documentPhotoDetails, updateFormData]);
+
+  const { requiredFields, filledCount } = useMemo(() => {
+    const required: string[] = []; const filled: string[] = [];
+    const checkNode = (node: CatalogNode) => {
+      getInputs(node).forEach((input) => {
+        if (input.inputType === 'select') { required.push(node.path); if (formData[node.path] !== undefined && formData[node.path] !== '') filled.push(node.path); }
+        else if (input.inputType === 'file-upload' && input.options.length > 0) { const slot = `${node.path}.${input.options[0].value}`; required.push(slot); if (photoDetails[slot]?.photos?.[0]) filled.push(slot); }
+      });
+      getChildren(node).forEach(checkNode);
+    };
+    sectionNodes.forEach(checkNode);
+    return { requiredFields: required, filledCount: filled.length };
+  }, [sectionNodes, formData, photoDetails]);
+
+  const filledPerSection = useMemo(() => {
+    const result: Record<string, number> = {};
+    const countNode = (n: CatalogNode): number => {
+      let count = 0;
+      getInputs(n).forEach((input) => {
+        if (input.inputType === 'file-upload') input.options.forEach((opt) => { if (photoDetails[`${n.path}.${opt.value}`]?.photos?.[0]) count++; });
+        else if (input.inputType === 'multi-select') { const vals = formData[n.path] as string[] | undefined; if (vals && vals.length > 0) count++; }
+        else { const val = formData[n.path]; if (val !== undefined && String(val).trim().length > 0) count++; }
+      });
+      getChildren(n).forEach((c) => { count += countNode(c); });
+      return count;
+    };
+    mergedSections.forEach((section) => { result[section.key] = section.nodes.reduce((sum, n) => sum + countNode(n), 0); });
+    return result;
+  }, [mergedSections, formData, photoDetails]);
+
+  const isComplete = filledCount === requiredFields.length && requiredFields.length > 0;
+  const handleNext = useCallback(() => { if (isComplete) { markStepComplete(InspectionStepId.Interior); onNext(); } }, [isComplete, markStepComplete, onNext]);
+
+  const renderHandlers = useMemo<RenderHandlers>(() => ({
+    formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange,
+    onMultiSelectChange: handleMultiSelectChange, onPhotoSlotPress: handlePhotoSlotPress,
+    onGroupPress: handleGroupPress, onDirectCapture: handleDirectCapture,
+  }), [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress, handleGroupPress, handleDirectCapture]);
+
+  if (loadingState === 'loading' && sectionNodes.length === 0) {
+    return <SafeAreaView style={s.safeArea} edges={['bottom']}><AppHeader title="Steering & Brakes" subtitle="Step 3 of 6" onBack={onBack} /><View style={s.centred}><ActivityIndicator size="large" color={colors.primary} /><Text style={s.loadingText}>Loading form…</Text></View></SafeAreaView>;
+  }
+  if (loadingState === 'error' && sectionNodes.length === 0) {
+    return <SafeAreaView style={s.safeArea} edges={['bottom']}><AppHeader title="Steering & Brakes" subtitle="Step 3 of 6" onBack={onBack} /><View style={s.centred}><Text style={s.errorIcon}>⚠️</Text><Text style={s.errorText}>Failed to load form fields.</Text><AppButton label="Retry" onPress={loadCatalog} size="sm" fullWidth={false} /></View></SafeAreaView>;
+  }
+
+  const activeSection = mergedSections.find((sec) => sec.key === resolvedActiveKey);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-      <AppHeader title="Interior Inspection" subtitle="Step 3 of 6" onBack={onBack} />
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.pageTitleContainer}>
-          <Text style={styles.pageTitle}>Section Summary</Text>
-          <Text style={styles.pageSubtitle}>Select issues found in each section</Text>
-        </View>
-
-        {summary.map((item) => {
-          const isAttention = item.status === 'Needs Attention';
-          return (
-            <View
-              key={item.section}
-              style={[
-                styles.card,
-                isAttention ? styles.cardAccentAttention : styles.cardAccentOk,
-              ]}>
-              <View style={styles.cardHeader}>
-                <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardIcon}>{item.icon}</Text>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                </View>
-                <View
-                  style={[
-                    styles.badge,
-                    isAttention ? styles.badgeAttention : styles.badgeOk,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.badgeText,
-                      isAttention ? styles.badgeTextAttention : styles.badgeTextOk,
-                    ]}>
-                    {item.status}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={styles.cardSubtext}>
-                {item.count === 0
-                  ? 'No issues selected'
-                  : `${item.count} issue${item.count > 1 ? 's' : ''} selected`}
-              </Text>
-
-              <Pressable style={styles.detailButton} onPress={() => setActiveModal(item.section)}>
-                <Text style={styles.detailButtonText}>Inspect →</Text>
-              </Pressable>
-            </View>
-          );
-        })}
+    <SafeAreaView style={s.safeArea} edges={['bottom']}>
+      <AppHeader title="Steering & Brakes" subtitle="Step 3 of 6" onBack={onBack} />
+      <View style={s.progressWrap}><ProgressRow filled={filledCount} total={requiredFields.length} /></View>
+      {mergedSections.length > 1 && <View style={s.tabWrap}><TabBar sections={mergedSections} activeKey={resolvedActiveKey} onSelect={setActiveTabKey} filledPerSection={filledPerSection} /></View>}
+      <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" key={resolvedActiveKey}>
+        {activeSection ? <View style={s.card}>{renderNodes(activeSection.nodes, renderHandlers)}</View> : null}
       </ScrollView>
 
-      <View style={styles.footer}>
-        <AppButton label="Next ->" onPress={onNext} testID="step3-next-btn" />
-      </View>
+      <Modal visible={activeSlot !== null} animationType="slide" onRequestClose={handleCloseModal}>
+        <SafeAreaView style={s.modalSafe} edges={['bottom']}>
+          {activeSlot ? <InspectionImageDetailPanel title={activeSlot.label} issueOptions={activeSlot.issueOptions} value={photoDetails[activeSlot.storageKey]} onChange={handlePhotoChange} onBack={handleCloseModal} layout="photoFirstSubmit" listBackTitle="Steering & Brakes" photoLabel="Photo" /> : null}
+        </SafeAreaView>
+      </Modal>
 
-      {sections.map((section) => (
-        <Modal
-          key={section}
-          visible={activeModal === section}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setActiveModal(null)}>
-          <View style={styles.modalBackdrop}>
-            <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>{SECTION_TITLES[section]} Details</Text>
-              <Text style={styles.modalSubTitle}>Select all observed issues</Text>
-
-              <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
-                {ISSUE_OPTIONS[section].map((issue) => {
-                  const checked = selectedIssues[section].includes(issue);
-                  return (
-                    <Pressable
-                      key={issue}
-                      style={styles.checkboxRow}
-                      onPress={() => toggleIssue(section, issue)}>
-                      <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                        {checked ? <Text style={styles.checkboxTick}>✓</Text> : null}
-                      </View>
-                      <Text style={styles.checkboxLabel}>{issue}</Text>
-                    </Pressable>
-                  );
-                })}
+      <Modal visible={activeGroupNode !== null} animationType="slide" onRequestClose={handleCloseGroupModal}>
+        <SafeAreaView style={s.modalSafe} edges={['bottom']}>
+          {activeGroupNode ? (
+            <>
+              <AppHeader title={activeGroupNode.label} subtitle="Steering & Brakes" onBack={handleCloseGroupModal} variant="primary" />
+              <ScrollView contentContainerStyle={s.groupModalContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {(() => { const node = activeGroupNode.node; const inputs = getInputs(node); const children = getChildren(node); const issueOptions = collectIssueOptions(children);
+                  return <>{inputs.map((input, iIdx) => <React.Fragment key={`gm-${iIdx}`}>{renderInput(input, node.path, node.label, issueOptions, renderHandlers)}</React.Fragment>)}{children.length > 0 && renderNodes(children, renderHandlers, 1)}</>; })()}
               </ScrollView>
+            </>
+          ) : null}
+        </SafeAreaView>
+      </Modal>
 
-              <AppButton label="Done" variant="primary" onPress={() => setActiveModal(null)} />
-            </View>
-          </View>
-        </Modal>
-      ))}
+      <View style={s.footer}>
+        {!isComplete && <Text style={s.hint}>⚠ Complete all required fields to proceed</Text>}
+        <AppButton label="Next →" onPress={handleNext} isDisabled={!isComplete} testID="step3-next-btn" />
+      </View>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    padding: spacing.base,
-    paddingBottom: vs(20),
-    gap: vs(12),
-  },
-  pageTitleContainer: {
-    marginBottom: vs(4),
-    gap: vs(2),
-  },
-  pageTitle: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  pageSubtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.textSecondary,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  cardAccentOk: {
-    borderLeftColor: colors.success,
-    borderLeftWidth: 3,
-  },
-  cardAccentAttention: {
-    borderLeftColor: colors.error,
-    borderLeftWidth: 3,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: vs(8),
-  },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  cardIcon: {
-    fontSize: typography.fontSize.md,
-  },
-  cardTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  cardSubtext: {
-    fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
-    marginBottom: vs(10),
-  },
-  badge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: vs(4),
-    borderRadius: borderRadius.full,
-  },
-  badgeOk: {
-    backgroundColor: colors.successLight,
-  },
-  badgeAttention: {
-    backgroundColor: colors.errorLight,
-  },
-  badgeText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.bold,
-  },
-  badgeTextOk: {
-    color: colors.success,
-  },
-  badgeTextAttention: {
-    color: colors.error,
-  },
-  detailButton: {
-    alignSelf: 'stretch',
-    paddingVertical: vs(10),
-    paddingHorizontal: spacing.base,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.sm,
-    alignItems: 'center',
-  },
-  detailButtonText: {
-    color: colors.surface,
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-  },
-  footer: {
-    padding: spacing.base,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: MODAL_BACKDROP_COLOR,
-  },
-  modalContainer: {
-    maxHeight: '80%',
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: borderRadius.lg,
-    borderTopRightRadius: borderRadius.lg,
-    padding: spacing.base,
-    gap: vs(12),
-  },
-  modalTitle: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  modalSubTitle: {
-    fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
-  },
-  modalList: {
-    maxHeight: vs(320),
-  },
-  checkboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: vs(10),
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: spacing.sm,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: borderRadius.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  checkboxTick: {
-    color: colors.surface,
-    fontWeight: typography.fontWeight.bold,
-  },
-  checkboxLabel: {
-    flex: 1,
-    color: colors.textPrimary,
-    fontSize: typography.fontSize.sm,
-  },
+const s = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.background }, modalSafe: { flex: 1, backgroundColor: colors.surface },
+  progressWrap: { paddingHorizontal: spacing.base, paddingTop: verticalSpacing.sm }, tabWrap: { paddingHorizontal: spacing.base, paddingBottom: verticalSpacing.xs },
+  scroll: { flex: 1 }, content: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
+  card: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.base, ...Platform.select({ android: { elevation: 2 }, ios: { shadowColor: colors.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 } }) },
+  centred: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: verticalSpacing.base, padding: spacing.xl },
+  loadingText: { fontSize: typography.fontSize.sm, color: colors.textSecondary }, errorIcon: { fontSize: 40 }, errorText: { fontSize: typography.fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
+  footer: { padding: spacing.base, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
+  hint: { fontSize: typography.fontSize.xs, color: colors.warning, textAlign: 'center', marginBottom: verticalSpacing.sm, fontWeight: typography.fontWeight.medium },
+  groupModalContent: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
 });
 
-export default Step3Interior;
+export default Step3SteeringBrakes;

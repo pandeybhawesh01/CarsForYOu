@@ -1,154 +1,101 @@
-# Cars24 App Context (Agent/IDE Handoff)
+# Cars24 Inspection App — Project Context & Rules
 
-This file is a fast onboarding guide for any IDE, coding agent, or new engineer.
+## Catalog-Driven UI Rules
 
-## 1) What This App Is
+All inspection step screens are dynamically rendered from the catalog API:
+`GET /api/v1/forms/inspection-report/catalog?view=tree`
 
-- App name: Cars24
-- Platform: React Native (Android + iOS)
-- Language: TypeScript
-- Purpose: Dealer-side vehicle inspection workflow from login to review/submit.
+### API Schema (v2)
 
-Primary user journey:
-1. Login with phone + OTP (simulated).
-2. Open Dashboard with assigned inspections.
-3. Pick a lead and enter inspection flow.
-4. Complete step-wise inspection sections.
-5. Review and submit inspection.
+Each node in the tree has:
+- `type`: `"group"` or `"field"`
+- `key`: identifier (may repeat across siblings — merge by key)
+- `label`: display name (may contain `/` path separators — use last segment)
+- `path`: dot-notation storage path (e.g. `vehicleDetails.chassisEmbossing`)
+- `inputs[]`: array of `{ inputType, dataType, allowsMultiple, options[] }`
+- `children[]`: nested child nodes
 
-## 2) Tech Stack
+### Rendering Rules
 
-- React Native: `0.84.1`
-- React: `19.2.3`
-- Navigation: `@react-navigation/native`, native stack + bottom tabs
-- State: `zustand`
-- Forms/validation libs available: `react-hook-form`, `zod` (partially used)
-- Media capture dependency: `react-native-image-picker`
-- Testing: Jest + react-test-renderer
+#### Depth-based group rendering
+- **depth 0** (top-level section nodes) → render content **inline** — these are the tab sections themselves
+- **depth ≥ 1** (nested groups) → render as a tappable **GroupPhotoCard** (📷 icon + label + › chevron)
+  - Tapping opens a detail modal showing the group's inputs + children
+  - Rule: check `type === "group"` only — do NOT additionally check for `file-upload`
 
-Package source of truth:
-- App package: `Cars24/package.json`
-- Workspace-level package (lightweight): `package.json`
+#### Field rendering by `inputType`
+| inputType | Rendering |
+|-----------|-----------|
+| `file-upload` (field node) | `PhotoCapture` directly — no modal, direct camera |
+| `file-upload` (group node, depth ≥ 1) | `GroupPhotoCard` → opens `InspectionImageDetailPanel` |
+| `select` + `BOOLEAN` dataType | `ChipSelector` with Yes/No labels |
+| `select` + `STRING` dataType | `ChipSelector` with option labels |
+| `multi-select` | `MultiSelectChips` |
+| `text` with options | One `AppInput` per option (options = named sub-fields) |
+| `number` with options | One numeric `AppInput` per option |
+| `text`/`number` without options | Single `AppInput` |
 
-## 3) Run Commands
+#### File-upload label rule
+- If `opt.label.toLowerCase() === 'image'` → use the **node label** as the `PhotoCapture` label
+- Otherwise → use the option label (e.g. "RC Front", "Front Main")
 
-From `Cars24/`:
+#### subOptions1 conditional rendering
+- When a `select` field has `subOptions1` on an option and that option is selected:
+  - Render sub-options below the chip selector
+  - `subOptions1` items carry an `inputType` property (non-standard extension on the option object)
+  - For `multi-select` sub-options: render `MultiSelectChips` using `subOptions2` as choices
+  - Storage path: `${nodePath}.${sub.value}`
 
-- `npm install`
-- `npm start` (Metro)
-- `npm run android`
-- `npm run ios`
-- `npm test`
-- `npm run lint`
+#### Same-key merging
+- Multiple nodes with the same `key` at the same level are merged into one section
+- At depth 0: merged nodes render all their content inline under one tab
+- At depth ≥ 1: merged nodes render as one `GroupPhotoCard`
 
-Node engine declared: `>= 22.11.0`.
+#### Tab bar
+- Top-level groups become horizontal tabs (same as Step 1)
+- Tab bar is shown only when there are ≥ 2 top-level sections
+- Each tab shows a filled-field badge counter
 
-## 4) High-Level Architecture
+### Section → Step mapping
 
-Entry and app shell:
-- `App.tsx` wraps app with `SafeAreaProvider` and renders root navigation.
+| Step | File | Section key | `InspectionStepId` |
+|------|------|-------------|-------------------|
+| 1 | `Step1_BasicVerification.tsx` | `vehicle` | `BasicVerification` |
+| 2 | `Step4_Engine.tsx` | `engineTransmission` | `Engine` |
+| 3 | `Step2_AirConditioning.tsx` | `airConditioning` | `Exterior` |
+| 4 | `Step3_Interior.tsx` | `steeringBrakes` | `Interior` |
+| 5 | `Step5_ElectricalsInteriors.tsx` | `electricalInteriors` | `Documents` |
+| 6 | `Step6_Media.tsx` | `exterior` | `Media` |
 
-Navigation layers:
-- `src/navigation/RootNavigator.tsx`
-  - Stack: `Login` -> `MainTabs` -> `InspectionNavigator`
-- `src/navigation/MainTabNavigator.tsx`
-  - Tabs: `Dashboard`, `Profile` (placeholder)
-- `src/navigation/InspectionNavigator.tsx`
-  - Stack: `LeadDetails` -> `InspectionHome` -> `InspectionStep` -> `ReviewSubmit` -> `InspectionSuccess`
+### Adding a new section
 
-Feature modules:
-- `src/features/auth/` for login flow
-- `src/features/dashboard/` for lead list and filters
-- `src/features/inspection/` for the full inspection domain
+1. Add `{sectionKey}SectionChildren: CatalogNode[]` to `NormalisedCatalog` in `types.ts`
+2. Extract it in `catalogService.ts` `normalise()` function
+3. Add `{sectionKey}SectionChildren: []` to `FALLBACK_CATALOG` in `catalogViewModel.ts`
+4. Use `catalog.{sectionKey}SectionChildren` as `sectionNodes` in the step screen
 
-Shared UI and styling:
-- Reusable components in `src/components/`
-- Design tokens in `src/constants/` (`colors`, `typography`, `spacing`)
-- Theme object in `src/theme/index.ts`
-- Screen scaling helpers in `src/utils/scaling.ts`
+### Catalog service location
+`Cars24/src/services/api/catalogService.ts`
 
-## 5) Inspection Domain Model
+### ViewModel location
+`Cars24/src/viewmodels/catalogViewModel.ts`
 
-Domain types and enums:
-- `src/features/inspection/types/index.ts`
-- Core enums: `InspectionStatus`, `InspectionStepId`, `Condition`, `YesNoNA`, `UserRole`
-- Session object: `InspectionSession`
-- Form payload object: `InspectionFormData`
+### Shared rendering helpers
+The following pure functions are duplicated across step screens (Step1, Step2, Step3, Step4).
+They are intentionally kept local to each screen to avoid cross-screen coupling:
+- `renderNodes(nodes, handlers, depth)` — recursive node renderer
+- `renderSingleNode(node, handlers, keyPrefix, depth)` — single node dispatcher
+- `renderInput(input, nodePath, nodeLabel, issueOptions, handlers)` — input type dispatcher
+- `mergeByKey(nodes)` — merges same-key siblings
+- `collectIssueOptions(children)` — extracts multi-select options from children for photo panels
+- `getInputs(node)` — extracts inputs array (handles both new and legacy schema)
+- `getChildren(node)` — extracts children array
 
-State management:
-- Store: `src/features/inspection/store/inspectionStore.ts`
-- Key actions:
-  - `startInspection(lead)`
-  - `updateFormData(stepId, data)`
-  - `markStepComplete(stepId)`
-  - `markStepIncomplete(stepId)`
-  - `submitInspection()`
-  - `resetInspection()`
+### Navigation
+- Login screen is bypassed for debugging — `RootNavigator` starts at `MainTabs`
+- To re-enable login: add `<Stack.Screen name="Login" component={LoginScreen} />` and set `initialRouteName="Login"`
 
-Current data source:
-- `src/services/mockData.ts`
-- Includes mock user, mock inspections, and `createEmptySession()`.
-- No production backend wiring yet in the current flow.
-
-## 6) Inspection Step Mapping (Important)
-
-`InspectionStepScreen` selects step components by `stepIndex` (not by enum key at runtime).
-
-Current mapping in `src/features/inspection/screens/InspectionStepScreen.tsx`:
-- `0` -> `Step1_BasicVerification`
-- `1` -> `Step4_Engine` (import alias name is misleading)
-- `2` -> `Step2_Exterior` (used as Air Conditioning screen in naming)
-- `3` -> `Step3_Interior`
-- `4` -> `Step5_ElectricalsInteriors`
-- `5` -> `Step6_Media`
-
-Notes:
-- Some file names and variable aliases are legacy/misaligned with actual section labels.
-- Keep this mapping in sync if you reorder or rename steps.
-
-## 7) Reusable Inspection Components
-
-Under `src/features/inspection/components/`:
-- `PhotoCapture.tsx`
-- `ConditionSelector.tsx`
-- `YesNoSelector.tsx`
-- `CoolantInspectionPanel.tsx`
-- `InspectionImageDetailPanel.tsx`
-- `InspectionPhotoSummaryRow.tsx`
-
-Inspection schema/constants:
-- `src/constants/inspectionSchema.ts`
-- Defines issue option lists and part definitions for exterior, engine components, AC, and documents.
-
-## 8) Known Caveats For New Agents/IDEs
-
-1. There is a generated TypeScript error snapshot file at workspace root:
-   - `tsc_errors.txt`
-2. The snapshot includes many path/import errors from older file layout and implicit `any` warnings.
-3. Step naming currently reflects domain evolution; labels and file names are not perfectly aligned.
-4. Dashboard navigation to nested stack uses a `@ts-ignore` at one call site for cross-navigator params.
-
-If you are modernizing or fixing types, start from navigation types and relative imports in:
-- `src/navigation/types.ts`
-- `src/features/inspection/screens/steps/`
-- `src/features/inspection/components/`
-
-## 9) Where To Make Common Changes
-
-- Change theme/colors/spacing: `src/constants/*`, `src/theme/index.ts`
-- Add inspection form fields: `src/features/inspection/types/index.ts` + relevant step screen + store update
-- Modify lead cards/list filters: `src/features/dashboard/screens/DashboardScreen.tsx`
-- Modify login behavior/auth strategy: `src/features/auth/screens/LoginScreen.tsx`
-- Add backend/API integration: replace usage of `src/services/mockData.ts` and introduce service layer under `src/services/api/`
-
-## 10) Quick Onboarding Checklist For Any Agent
-
-1. Read this file fully.
-2. Read navigation files in `src/navigation/`.
-3. Read store and types in `src/features/inspection/store/` and `src/features/inspection/types/`.
-4. Confirm step mapping in `InspectionStepScreen.tsx` before making step-related edits.
-5. Run `npm run lint` and `npm test` before finalizing changes.
-
----
-
-Maintainer note: Keep this file updated when navigation flow, step mapping, or store contracts change.
+### Data storage
+- Form data stored in `InspectionStore` via `updateFormData(stepId, { [path]: value })`
+- Photo details stored in `media.documentPhotoDetails` keyed by slot path (e.g. `carImages.frontMain`)
+- Direct captures (field file-upload) stored as `{ photos: [uri], status: 'good' }`

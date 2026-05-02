@@ -43,6 +43,7 @@ const FALLBACK_CATALOG: NormalisedCatalog = {
   vehicleSectionChildren: [],
   engineTransmissionSectionChildren: [],
   airConditioningSectionChildren: [],
+  steeringBrakesSectionChildren: [],
 
   airConditioning: {
     acCompressorIssues: ['AC Compressor not working', 'Compressor noise'],
