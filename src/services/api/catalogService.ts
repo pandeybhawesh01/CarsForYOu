@@ -139,10 +139,14 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
   const vehicleSection = raw.data.find((s) => s.section === 'vehicle');
   const vehicleSectionChildren = vehicleSection?.children ?? [];
 
+  const engineSection = raw.data.find((s) => s.section === 'engineTransmission');
+  const engineTransmissionSectionChildren = engineSection?.children ?? [];
+
   return {
     optionsByPath: optionsMap,
     fieldsByPath: fieldsMap,
     vehicleSectionChildren,
+    engineTransmissionSectionChildren,
 
     airConditioning: {
       acCompressorIssues: optionsForPath(fieldsMap, 'acCompressor.issues'),

@@ -116,6 +116,7 @@ export interface NormalisedCatalog {
   optionsByPath: CatalogOptionsMap;
   fieldsByPath: Record<string, NormalisedField>;
   vehicleSectionChildren: CatalogNode[];
+  engineTransmissionSectionChildren: CatalogNode[];
 
   airConditioning: {
     acCompressorIssues: string[];
