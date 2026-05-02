@@ -418,7 +418,8 @@ function renderInput(
     // Field node: one PhotoCapture per option slot — direct camera, no modal
     return input.options.map((opt) => {
       const slotKey = `${nodePath}.${String(opt.value)}`;
-      const slotLabel = cleanLabel(opt.label);
+      // Use node label when option label is generic ("Image"), otherwise use option label
+      const slotLabel = opt.label.toLowerCase() === 'image' ? label : cleanLabel(opt.label);
       const block = handlers.photoDetails[slotKey];
       const capturedUri = block?.photos?.[0];
       return (
@@ -447,14 +448,42 @@ function renderInput(
 
   if (input.inputType === 'select') {
     const current = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    const selectedOpt = input.options.find((o) => String(o.value) === current);
+    const subOpts = selectedOpt?.subOptions1 ?? [];
     return (
-      <ChipSelector
-        key={nodePath}
-        label={label}
-        options={input.options}
-        value={current}
-        onChange={(val) => handlers.onSelectChange(nodePath, val)}
-      />
+      <React.Fragment key={nodePath}>
+        <ChipSelector
+          label={label}
+          options={input.options}
+          value={current}
+          onChange={(val) => handlers.onSelectChange(nodePath, val)}
+        />
+        {subOpts.length > 0 && subOpts.map((sub, sIdx) => {
+          const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
+          const subPath = `${nodePath}.${String(sub.value)}`;
+          const subLabel = cleanLabel(sub.label);
+          if (subInputType === 'multi-select') {
+            const subOptions2 = (sub as unknown as Record<string, unknown[]>).subOptions2 ?? [];
+            const subCatalogOptions = subOptions2.map((s2) => ({
+              value: (s2 as Record<string, unknown>).value as string,
+              label: (s2 as Record<string, unknown>).label as string,
+              dataType: 'STRING' as const,
+              subOptions1: [],
+            }));
+            const currentSub = (handlers.formData[subPath] as string[] | undefined) ?? [];
+            return (
+              <MultiSelectChips
+                key={`${nodePath}-sub-${sIdx}`}
+                label={subLabel}
+                options={subCatalogOptions}
+                selected={currentSub}
+                onChange={(vals) => handlers.onMultiSelectChange(subPath, vals)}
+              />
+            );
+          }
+          return null;
+        })}
+      </React.Fragment>
     );
   }
 
