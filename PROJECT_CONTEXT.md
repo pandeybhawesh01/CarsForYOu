@@ -43,8 +43,12 @@ Each node in the tree has:
 - When a `select` field has `subOptions1` on an option and that option is selected:
   - Render sub-options below the chip selector
   - `subOptions1` items carry an `inputType` property (non-standard extension on the option object)
+  - For `file-upload` sub-options: render `PhotoCapture` — storage path is `${nodePath}.${sub.value}` (e.g. `sunroof.isAvailable.Image`)
+    - If `sub.label.toLowerCase() === 'image'`, use the parent node label as the `PhotoCapture` label
+    - This is the **conditional media upload** pattern: the upload only appears when the parent boolean is `true`
   - For `multi-select` sub-options: render `MultiSelectChips` using `subOptions2` as choices
   - Storage path: `${nodePath}.${sub.value}`
+  - **Examples**: sunroof `isAvailable: true` → shows Image upload + Issues multi-select; music system `isPresent: true` → shows Video upload + Issues multi-select
 
 #### Same-key merging
 - Multiple nodes with the same `key` at the same level are merged into one section

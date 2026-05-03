@@ -27,6 +27,7 @@ import AppInput from '../../../../components/AppInput';
 import InspectionPhotoSummaryRow from '../../components/InspectionPhotoSummaryRow';
 import InspectionImageDetailPanel from '../../components/InspectionImageDetailPanel';
 import PhotoCapture from '../../components/PhotoCapture';
+import VideoCapture from '../../components/VideoCapture';
 import MultiSelectChips from '../../components/MultiSelectChips';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
@@ -237,6 +238,28 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
           const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
           const subPath = `${nodePath}.${String(sub.value)}`;
           const subLabel = cleanLabel(sub.label);
+          if (subInputType === 'file-upload') {
+            // e.g. sunroof Image upload — only shown when parent option (true) is selected
+            const block = handlers.photoDetails[subPath];
+            if (String(sub.value).toLowerCase() === 'video') {
+              return (
+                <VideoCapture
+                  key={`${nodePath}-sub-${sIdx}`}
+                  label={subLabel}
+                  videoUri={block?.photos?.[0]}
+                  onCapture={(uri) => handlers.onDirectCapture(subPath, uri)}
+                />
+              );
+            }
+            return (
+              <PhotoCapture
+                key={`${nodePath}-sub-${sIdx}`}
+                label={subLabel}
+                imageUri={block?.photos?.[0]}
+                onCapture={(uri) => handlers.onDirectCapture(subPath, uri)}
+              />
+            );
+          }
           if (subInputType === 'multi-select') {
             const subOptions2 = (sub as unknown as Record<string, unknown[]>).subOptions2 ?? [];
             const subCatalogOptions = subOptions2.map((s2) => ({
