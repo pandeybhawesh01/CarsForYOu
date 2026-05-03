@@ -1,118 +1,779 @@
+// Step 6 - Exterior + Tyres
+/**
+ * Step 6 — Exterior + Tyres
+ * Catalog-driven, same rules as Steps 1–5.
+ *
+ * Section key: "exterior"
+ * Top-level groups (depth 0) → horizontal tabs:
+ *   bodyPanels | lightsGlass | orvm | structure | wheelsTyres
+ * Nested groups (depth ≥ 1) → tappable GroupPhotoCards
+ *   Each card opens a modal with: file-upload (PhotoCapture) + issues (MultiSelectChips w/ subOptions1)
+ * wheelsTyres also has flat boolean fields (alloyWheels, jackAndToolsAvailable, spareTyrePresent)
+ *   and wheel groups with tyreTreadDepth (select) + issues (multi-select)
+ */
 import React, { useCallback, useMemo, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useInspectionStore } from '../../store/inspectionStore';
-import { InspectionStepId, type PhotoIssueInspectionBlock } from '../../types';
-import ConditionSelector from '../../components/ConditionSelector';
-import YesNoSelector from '../../components/YesNoSelector';
-import PhotoCapture from '../../components/PhotoCapture';
+import { InspectionStepId } from '../../types';
+import AppInput from '../../../../components/AppInput';
 import InspectionImageDetailPanel from '../../components/InspectionImageDetailPanel';
-import InspectionPhotoSummaryRow from '../../components/InspectionPhotoSummaryRow';
+import PhotoCapture from '../../components/PhotoCapture';
+import MultiSelectChips from '../../components/MultiSelectChips';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
-import {
-  EXTERIOR_PART_ISSUE_OPTIONS,
-  EXTERIOR_TYRE_TAB_LABELS,
-  EXTERIOR_TYRE_TAB_PARTS,
-  type ExteriorTyreTabId,
-} from '../../../../constants/inspectionSchema';
 import { colors } from '../../../../constants/colors';
 import { typography } from '../../../../constants/typography';
-import { spacing, borderRadius } from '../../../../constants/spacing';
-import { vs, hs } from '../../../../utils/scaling';
-import { isPhotoIssueBlockComplete } from '../../utils/photoInspection';
+import { spacing, verticalSpacing, borderRadius } from '../../../../constants/spacing';
+import type { PhotoIssueInspectionBlock } from '../../types';
+import { useCatalogViewModel, selectCatalog } from '../../../../viewmodels/catalogViewModel';
+import type {
+  CatalogNode,
+  CatalogField,
+  CatalogGroup,
+  CatalogInput,
+  CatalogOption,
+} from '../../../../services/api/types';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface ActivePhotoSlot {
+  storageKey: string;
+  label: string;
+  issueOptions: readonly string[];
+}
+
+interface ActiveGroupNode {
+  node: CatalogGroup;
+  label: string;
+}
+
+interface MergedSection {
+  key: string;
+  label: string;
+  nodes: CatalogNode[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function cleanLabel(raw: string): string {
+  const parts = raw.split('/');
+  const last = parts[parts.length - 1].trim();
+  return last
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(' ')
+    .map(capitalise)
+    .join(' ');
+}
+
+function isGroup(node: CatalogNode): node is CatalogGroup {
+  return node.type === 'group';
+}
+
+function getInputs(node: CatalogNode): CatalogInput[] {
+  const g = node as CatalogGroup;
+  if (Array.isArray(g.inputs) && g.inputs.length > 0) return g.inputs;
+  const f = node as CatalogField;
+  if (f.inputType) {
+    return [{
+      inputType: f.inputType,
+      dataType: f.dataType ?? 'STRING',
+      allowsMultiple: f.allowsMultiple ?? false,
+      options: f.options ?? [],
+    }];
+  }
+  return [];
+}
+
+function getChildren(node: CatalogNode): CatalogNode[] {
+  return (node as CatalogGroup).children ?? [];
+}
+
+function collectIssueOptions(children: CatalogNode[]): string[] {
+  const issues: string[] = [];
+  for (const child of children) {
+    const inputs = getInputs(child);
+    for (const input of inputs) {
+      if (input.inputType === 'multi-select') {
+        issues.push(...input.options.map((o) => String(o.label)));
+      }
+    }
+    issues.push(...collectIssueOptions(getChildren(child)));
+  }
+  return issues;
+}
+
+function mergeByKey(nodes: CatalogNode[]): MergedSection[] {
+  const order: string[] = [];
+  const map: Record<string, MergedSection> = {};
+  for (const node of nodes) {
+    const key = node.key;
+    if (!map[key]) {
+      order.push(key);
+      map[key] = { key, label: cleanLabel(node.label), nodes: [] };
+    }
+    map[key].nodes.push(node);
+  }
+  return order.map((k) => map[k]);
+}
+
+// ─── Render handlers ──────────────────────────────────────────────────────────
+
+interface RenderHandlers {
+  formData: Record<string, unknown>;
+  photoDetails: Record<string, PhotoIssueInspectionBlock>;
+  onTextChange: (path: string, value: string) => void;
+  onSelectChange: (path: string, value: string) => void;
+  onMultiSelectChange: (path: string, values: string[]) => void;
+  onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
+  onGroupPress: (group: ActiveGroupNode) => void;
+  onDirectCapture: (storageKey: string, uri: string) => void;
+}
+
+// ─── Chip selector ────────────────────────────────────────────────────────────
+
+const ChipSelector: React.FC<{
+  label: string;
+  options: CatalogOption[];
+  value: string;
+  onChange: (val: string) => void;
+}> = ({ label, options, value, onChange }) => (
+  <View style={chipStyles.container}>
+    <Text style={chipStyles.label}>{label}</Text>
+    <View style={chipStyles.row}>
+      {options.map((opt) => {
+        const val = String(opt.value);
+        const display = opt.dataType === 'BOOLEAN' ? (val === 'true' ? 'Yes' : 'No') : opt.label;
+        const selected = value === val;
+        return (
+          <TouchableOpacity
+            key={val}
+            style={[chipStyles.chip, selected && chipStyles.chipSelected]}
+            onPress={() => onChange(val)}
+            activeOpacity={0.7}>
+            <Text style={[chipStyles.chipText, selected && chipStyles.chipTextSelected]}>
+              {display}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  </View>
+);
+
+const chipStyles = StyleSheet.create({
+  container: { marginBottom: verticalSpacing.md },
+  label: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.textSecondary,
+    marginBottom: verticalSpacing.sm,
+  },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chip: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.base,
+    paddingVertical: verticalSpacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surface,
+  },
+  chipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  chipText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text,
+    fontWeight: typography.fontWeight.medium,
+  },
+  chipTextSelected: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
+});
+
+// ─── Group photo card ─────────────────────────────────────────────────────────
+
+const GroupPhotoCard: React.FC<{
+  label: string;
+  hasContent: boolean;
+  onPress: () => void;
+}> = ({ label, hasContent, onPress }) => (
+  <TouchableOpacity
+    style={groupCardStyles.card}
+    onPress={onPress}
+    activeOpacity={0.75}
+    accessibilityRole="button">
+    <View style={groupCardStyles.iconWrap}>
+      <Text style={groupCardStyles.icon}>📷</Text>
+      {hasContent && <View style={groupCardStyles.doneDot} />}
+    </View>
+    <View style={groupCardStyles.body}>
+      <Text style={groupCardStyles.label}>{label}</Text>
+      <Text style={groupCardStyles.sub}>
+        {hasContent ? '✓ Submitted' : 'Tap to capture & review'}
+      </Text>
+    </View>
+    <Text style={groupCardStyles.chevron}>›</Text>
+  </TouchableOpacity>
+);
+
+const groupCardStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: borderRadius.md,
+    padding: spacing.base,
+    marginBottom: verticalSpacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    gap: spacing.sm,
+  },
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  icon: { fontSize: 22 },
+  doneDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.success,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+  },
+  body: { flex: 1 },
+  label: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  sub: { fontSize: typography.fontSize.xs, color: colors.textSecondary },
+  chevron: { fontSize: 22, color: colors.textSecondary, fontWeight: typography.fontWeight.bold },
+});
+
+// ─── Input renderer ───────────────────────────────────────────────────────────
+
+function renderInput(
+  input: CatalogInput,
+  nodePath: string,
+  nodeLabel: string,
+  _issueOptions: string[],
+  handlers: RenderHandlers,
+): React.ReactNode {
+  const label = cleanLabel(nodeLabel);
+
+  if (input.inputType === 'file-upload') {
+    return input.options.map((opt) => {
+      const slotKey = `${nodePath}.${String(opt.value)}`;
+      const slotLabel = opt.label.toLowerCase() === 'image' ? label : cleanLabel(opt.label);
+      const block = handlers.photoDetails[slotKey];
+      return (
+        <PhotoCapture
+          key={slotKey}
+          label={slotLabel}
+          imageUri={block?.photos?.[0]}
+          onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)}
+        />
+      );
+    });
+  }
+
+  if (input.inputType === 'multi-select') {
+    const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
+    return (
+      <MultiSelectChips
+        key={nodePath}
+        label={label}
+        options={input.options}
+        selected={current}
+        onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)}
+      />
+    );
+  }
+
+  if (input.inputType === 'select') {
+    const current = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    const selectedOpt = input.options.find((o) => String(o.value) === current);
+    const subOpts = selectedOpt?.subOptions1 ?? [];
+    return (
+      <React.Fragment key={nodePath}>
+        <ChipSelector
+          label={label}
+          options={input.options}
+          value={current}
+          onChange={(val) => handlers.onSelectChange(nodePath, val)}
+        />
+        {subOpts.map((sub, sIdx) => {
+          const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
+          const subPath = `${nodePath}.${String(sub.value)}`;
+          const subLabel = cleanLabel(sub.label);
+          if (subInputType === 'multi-select') {
+            const subOptions2 = (sub as unknown as Record<string, unknown[]>).subOptions2 ?? [];
+            const subCatalogOptions = subOptions2.map((s2) => ({
+              value: (s2 as Record<string, unknown>).value as string,
+              label: (s2 as Record<string, unknown>).label as string,
+              dataType: 'STRING' as const,
+              subOptions1: [],
+            }));
+            const currentSub = (handlers.formData[subPath] as string[] | undefined) ?? [];
+            return (
+              <MultiSelectChips
+                key={`${nodePath}-sub-${sIdx}`}
+                label={subLabel}
+                options={subCatalogOptions}
+                selected={currentSub}
+                onChange={(vals) => handlers.onMultiSelectChange(subPath, vals)}
+              />
+            );
+          }
+          return null;
+        })}
+      </React.Fragment>
+    );
+  }
+
+  if (input.inputType === 'number') {
+    if (input.options.length > 0) {
+      return input.options.map((opt) => {
+        const fp = `${nodePath}.${String(opt.value)}`;
+        const fl = cleanLabel(opt.label);
+        const cur = String((handlers.formData[fp] as string | undefined) ?? '');
+        return (
+          <AppInput
+            key={fp}
+            label={fl}
+            value={cur}
+            onChangeText={(v) => handlers.onTextChange(fp, v)}
+            keyboardType="numeric"
+            placeholder={`Enter ${fl.toLowerCase()}`}
+          />
+        );
+      });
+    }
+    const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    return (
+      <AppInput
+        key={nodePath}
+        label={label}
+        value={cur}
+        onChangeText={(v) => handlers.onTextChange(nodePath, v)}
+        keyboardType="numeric"
+        placeholder={`Enter ${label.toLowerCase()}`}
+      />
+    );
+  }
+
+  if (input.options.length > 0) {
+    return input.options.map((opt) => {
+      const fp = `${nodePath}.${String(opt.value)}`;
+      const fl = cleanLabel(opt.label);
+      const cur = String((handlers.formData[fp] as string | undefined) ?? '');
+      return (
+        <AppInput
+          key={fp}
+          label={fl}
+          value={cur}
+          onChangeText={(v) => handlers.onTextChange(fp, v)}
+          placeholder={`Enter ${fl.toLowerCase()}`}
+        />
+      );
+    });
+  }
+  const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+  return (
+    <AppInput
+      key={nodePath}
+      label={label}
+      value={cur}
+      onChangeText={(v) => handlers.onTextChange(nodePath, v)}
+      placeholder={`Enter ${label.toLowerCase()}`}
+    />
+  );
+}
+
+// ─── Node renderer ────────────────────────────────────────────────────────────
+
+function renderNodes(
+  nodes: CatalogNode[],
+  handlers: RenderHandlers,
+  depth = 0,
+): React.ReactNode {
+  const merged = mergeByKey(nodes);
+  return merged.map((section) => {
+    if (section.nodes.length === 1) {
+      return renderSingleNode(section.nodes[0], handlers, section.key, depth);
+    }
+    return (
+      <View key={`${section.key}-merged`}>
+        {section.nodes.map((node, idx) =>
+          renderSingleNode(node, handlers, `${section.key}-${idx}`, depth),
+        )}
+      </View>
+    );
+  });
+}
+
+function renderSingleNode(
+  node: CatalogNode,
+  handlers: RenderHandlers,
+  keyPrefix: string,
+  depth = 0,
+): React.ReactNode {
+  if (isGroup(node)) {
+    if (depth >= 1) {
+      const inputs = getInputs(node);
+      const children = getChildren(node);
+      const hasContent =
+        inputs.some(
+          (inp) =>
+            inp.inputType === 'file-upload' &&
+            inp.options.some(
+              (opt) => handlers.photoDetails[`${node.path}.${String(opt.value)}`]?.photos?.[0],
+            ),
+        ) ||
+        children.some((child) => {
+          const val = handlers.formData[child.path];
+          return val !== undefined && String(val).trim().length > 0;
+        });
+      return (
+        <GroupPhotoCard
+          key={`${keyPrefix}-card`}
+          label={cleanLabel(node.label)}
+          hasContent={hasContent}
+          onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })}
+        />
+      );
+    }
+    const inputs = getInputs(node);
+    const children = getChildren(node);
+    const issueOptions = collectIssueOptions(children);
+    return (
+      <View key={`${keyPrefix}-node`}>
+        {inputs.map((input, iIdx) => (
+          <React.Fragment key={`${node.path}-input-${iIdx}`}>
+            {renderInput(input, node.path, node.label, issueOptions, handlers)}
+          </React.Fragment>
+        ))}
+        {children.length > 0 && renderNodes(children, handlers, depth + 1)}
+      </View>
+    );
+  }
+  const inputs = getInputs(node);
+  const children = getChildren(node);
+  const issueOptions = collectIssueOptions(children);
+  return (
+    <View key={`${keyPrefix}-node`}>
+      {inputs.map((input, iIdx) => (
+        <React.Fragment key={`${node.path}-input-${iIdx}`}>
+          {renderInput(input, node.path, node.label, issueOptions, handlers)}
+        </React.Fragment>
+      ))}
+      {children.length > 0 && renderNodes(children, handlers, depth + 1)}
+    </View>
+  );
+}
+
+// ─── Progress bar ─────────────────────────────────────────────────────────────
+
+const ProgressRow: React.FC<{ filled: number; total: number }> = ({ filled, total }) => {
+  const remaining = total - filled;
+  const allDone = remaining === 0;
+  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+  return (
+    <View style={progressStyles.container}>
+      <View style={progressStyles.barTrack}>
+        <View style={[progressStyles.barFill, { width: `${pct}%` as `${number}%` }]} />
+      </View>
+      <Text style={[progressStyles.label, allDone && progressStyles.labelDone]}>
+        {allDone
+          ? '✓ All required fields complete'
+          : `${remaining} required field${remaining === 1 ? '' : 's'} remaining`}
+      </Text>
+    </View>
+  );
+};
+
+const progressStyles = StyleSheet.create({
+  container: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: verticalSpacing.sm,
+    marginBottom: verticalSpacing.base,
+    gap: verticalSpacing.xs,
+    ...Platform.select({
+      android: { elevation: 1 },
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 1,
+        shadowRadius: 2,
+      },
+    }),
+  },
+  barTrack: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: borderRadius.full,
+    overflow: 'hidden',
+  },
+  barFill: { height: '100%', backgroundColor: colors.primary, borderRadius: borderRadius.full },
+  label: {
+    fontSize: typography.fontSize.xs,
+    color: colors.textSecondary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  labelDone: { color: colors.success, fontWeight: typography.fontWeight.semiBold },
+});
+
+// ─── Tab bar ──────────────────────────────────────────────────────────────────
+
+const SectionTabBar: React.FC<{
+  sections: MergedSection[];
+  activeKey: string;
+  onSelect: (key: string) => void;
+  filledPerSection: Record<string, number>;
+}> = ({ sections, activeKey, onSelect, filledPerSection }) => (
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    style={tabStyles.scrollView}
+    contentContainerStyle={tabStyles.wrapper}>
+    {sections.map((section) => {
+      const isActive = section.key === activeKey;
+      const filled = filledPerSection[section.key] ?? 0;
+      return (
+        <TouchableOpacity
+          key={section.key}
+          style={[tabStyles.tab, isActive && tabStyles.tabActive]}
+          onPress={() => onSelect(section.key)}
+          activeOpacity={0.75}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: isActive }}>
+          <Text
+            style={[tabStyles.tabLabel, isActive && tabStyles.tabLabelActive]}
+            numberOfLines={1}>
+            {section.label}
+          </Text>
+          {filled > 0 && (
+            <View style={[tabStyles.badge, isActive && tabStyles.badgeActive]}>
+              <Text style={tabStyles.badgeText}>{filled}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      );
+    })}
+  </ScrollView>
+);
+
+const tabStyles = StyleSheet.create({
+  scrollView: { flexGrow: 0, marginBottom: verticalSpacing.base },
+  wrapper: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.xs,
+    gap: spacing.xs,
+    ...Platform.select({
+      android: { elevation: 2 },
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 1,
+        shadowRadius: 4,
+      },
+    }),
+  },
+  tab: {
+    alignItems: 'center',
+    paddingVertical: verticalSpacing.sm,
+    paddingHorizontal: spacing.base,
+    borderRadius: borderRadius.sm,
+    gap: verticalSpacing.xxs,
+    minWidth: 80,
+  },
+  tabActive: { backgroundColor: colors.primaryLight },
+  tabLabel: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  tabLabelActive: { color: colors.primary, fontWeight: typography.fontWeight.bold },
+  badge: {
+    backgroundColor: colors.border,
+    borderRadius: borderRadius.full,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeActive: { backgroundColor: colors.primary },
+  badgeText: { fontSize: 9, color: colors.white, fontWeight: typography.fontWeight.bold },
+});
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
-type EditorState =
-  | { mode: 'list' }
-  | { mode: 'part'; partId: string; label: string };
-
-const TAB_ORDER: ExteriorTyreTabId[] = ['front', 'left', 'rear', 'right'];
-
-/** Directional arrow per tab to communicate walkaround direction */
-const TAB_DIRECTION_ICON: Record<ExteriorTyreTabId, string> = {
-  front: '⬆️',
-  left: '⬅️',
-  rear: '⬇️',
-  right: '➡️',
-};
-
-/** Total required fields outside of walkaround photos */
-const REQUIRED_FORM_FIELDS = 3; // frontBumper, frontTyreLeft, spareTyre
-
-// ─── Component ───────────────────────────────────────────────────────────────
-
 const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
   const { currentSession, updateFormData, markStepComplete } = useInspectionStore();
-  const media = currentSession?.formData.media ?? { additionalImages: [] };
-  const data = currentSession?.formData.exterior ?? {};
-  const appointmentId = currentSession?.appointmentId ?? '';
+  const catalog = useCatalogViewModel(selectCatalog);
+  const loadingState = useCatalogViewModel((s) => s.loadingState);
+  const loadCatalog = useCatalogViewModel((s) => s.loadCatalog);
 
-  const [tab, setTab] = useState<ExteriorTyreTabId>('front');
-  const [editor, setEditor] = useState<EditorState>({ mode: 'list' });
+  // Exterior form data (select/boolean fields like alloyWheels, tyreTreadDepth, spareTyrePresent)
+  const formData = (currentSession?.formData.exterior ?? {}) as Record<string, unknown>;
+  // Photo details stored in media.documentPhotoDetails keyed by slot path
+  const photoDetails = (currentSession?.formData.media?.documentPhotoDetails ?? {}) as Record<
+    string,
+    PhotoIssueInspectionBlock
+  >;
 
-  const exteriorTyreParts = media.exteriorTyreParts ?? {};
+  const sectionNodes = catalog.exteriorSectionChildren;
+  const mergedSections = useMemo(() => mergeByKey(sectionNodes), [sectionNodes]);
 
-  const updatePart = useCallback(
-    (partId: string, block: PhotoIssueInspectionBlock) => {
+  const [activeTabKey, setActiveTabKey] = useState('');
+  const resolvedActiveKey = activeTabKey || (mergedSections[0]?.key ?? '');
+
+  const [activeSlot, setActiveSlot] = useState<ActivePhotoSlot | null>(null);
+  const [activeGroupNode, setActiveGroupNode] = useState<ActiveGroupNode | null>(null);
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
+
+  const handleTextChange = useCallback(
+    (path: string, value: string) =>
+      updateFormData(InspectionStepId.Exterior, { [path]: value }),
+    [updateFormData],
+  );
+
+  const handleSelectChange = useCallback(
+    (path: string, value: string) =>
+      updateFormData(InspectionStepId.Exterior, { [path]: value }),
+    [updateFormData],
+  );
+
+  const handleMultiSelectChange = useCallback(
+    (path: string, values: string[]) =>
+      updateFormData(InspectionStepId.Exterior, { [path]: values }),
+    [updateFormData],
+  );
+
+  const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
+  const handleCloseModal = useCallback(() => setActiveSlot(null), []);
+  const handleGroupPress = useCallback(
+    (group: ActiveGroupNode) => setActiveGroupNode(group),
+    [],
+  );
+  const handleCloseGroupModal = useCallback(() => setActiveGroupNode(null), []);
+
+  const handleDirectCapture = useCallback(
+    (storageKey: string, uri: string) => {
+      const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+      const existing = prev[storageKey] ?? {};
       updateFormData(InspectionStepId.Media, {
-        exteriorTyreParts: { ...exteriorTyreParts, [partId]: block },
+        documentPhotoDetails: {
+          ...prev,
+          [storageKey]: {
+            ...existing,
+            photos: uri ? [uri] : [],
+            status: uri ? 'good' : undefined,
+          },
+        },
       });
     },
-    [exteriorTyreParts, updateFormData],
+    [currentSession?.formData.media?.documentPhotoDetails, updateFormData],
   );
 
-  const tabComplete = useCallback(
-    (tid: ExteriorTyreTabId) =>
-      EXTERIOR_TYRE_TAB_PARTS[tid].every(
-        (p) =>
-          !p.required ||
-          isPhotoIssueBlockComplete(exteriorTyreParts[p.id], { requirePhoto: true, photoOnlyOk: true }),
-      ),
-    [exteriorTyreParts],
-  );
-
-  const allExteriorPartsDone = useMemo(
-    () => TAB_ORDER.every((tid) => tabComplete(tid)),
-    [tabComplete],
-  );
-
-  // ── Completion summary ──────────────────────────────────────────────────────
-
-  /** Count how many required walkaround parts are done across all tabs */
-  const { completedRequired, totalRequired } = useMemo(() => {
-    let completed = 0;
-    let total = 0;
-    TAB_ORDER.forEach((tid) => {
-      EXTERIOR_TYRE_TAB_PARTS[tid].forEach((p) => {
-        if (!p.required) return;
-        total += 1;
-        if (isPhotoIssueBlockComplete(exteriorTyreParts[p.id], { requirePhoto: true, photoOnlyOk: true })) {
-          completed += 1;
-        }
+  const handlePhotoChange = useCallback(
+    (block: PhotoIssueInspectionBlock) => {
+      if (!activeSlot) return;
+      const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+      updateFormData(InspectionStepId.Media, {
+        documentPhotoDetails: { ...prev, [activeSlot.storageKey]: block },
       });
-    });
-    // Add the 3 required form fields
-    total += REQUIRED_FORM_FIELDS;
-    if (data.frontBumper !== undefined) completed += 1;
-    if (data.frontTyreLeft !== undefined) completed += 1;
-    if (data.spareTyre !== undefined) completed += 1;
-    return { completedRequired: completed, totalRequired: total };
-  }, [exteriorTyreParts, data.frontBumper, data.frontTyreLeft, data.spareTyre]);
+    },
+    [activeSlot, currentSession?.formData.media?.documentPhotoDetails, updateFormData],
+  );
 
-  const progressFraction = totalRequired > 0 ? completedRequired / totalRequired : 0;
+  // ── Required field tracking ──────────────────────────────────────────────────
+  // Required: select inputs (boolean/string) + first file-upload slot per group
 
-  const isComplete =
-    allExteriorPartsDone &&
-    data.frontBumper !== undefined &&
-    data.frontTyreLeft !== undefined &&
-    data.spareTyre !== undefined;
+  const { requiredFields, filledCount } = useMemo(() => {
+    const required: string[] = [];
+    const filled: string[] = [];
+    const checkNode = (node: CatalogNode) => {
+      const inputs = getInputs(node);
+      for (const input of inputs) {
+        if (input.inputType === 'select') {
+          required.push(node.path);
+          if (formData[node.path] !== undefined && formData[node.path] !== '') {
+            filled.push(node.path);
+          }
+        } else if (input.inputType === 'file-upload' && input.options.length > 0) {
+          const slot = `${node.path}.${String(input.options[0].value)}`;
+          required.push(slot);
+          if (photoDetails[slot]?.photos?.[0]) filled.push(slot);
+        }
+      }
+      getChildren(node).forEach(checkNode);
+    };
+    sectionNodes.forEach(checkNode);
+    return { requiredFields: required, filledCount: filled.length };
+  }, [sectionNodes, formData, photoDetails]);
+
+  // ── Per-tab filled count for badges ─────────────────────────────────────────
+
+  const filledPerSection = useMemo(() => {
+    const result: Record<string, number> = {};
+    const countNode = (n: CatalogNode): number => {
+      let count = 0;
+      const inputs = getInputs(n);
+      for (const input of inputs) {
+        if (input.inputType === 'file-upload') {
+          input.options.forEach((opt) => {
+            if (photoDetails[`${n.path}.${String(opt.value)}`]?.photos?.[0]) count++;
+          });
+        } else if (input.inputType === 'multi-select') {
+          const vals = formData[n.path] as string[] | undefined;
+          if (vals && vals.length > 0) count++;
+        } else {
+          const val = formData[n.path];
+          if (val !== undefined && String(val).trim().length > 0) count++;
+        }
+      }
+      getChildren(n).forEach((c) => { count += countNode(c); });
+      return count;
+    };
+    for (const section of mergedSections) {
+      result[section.key] = section.nodes.reduce((sum, n) => sum + countNode(n), 0);
+    }
+    return result;
+  }, [mergedSections, formData, photoDetails]);
+
+  const isComplete = filledCount === requiredFields.length && requiredFields.length > 0;
 
   const handleNext = useCallback(() => {
     if (isComplete) {
@@ -121,196 +782,165 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
     }
   }, [isComplete, markStepComplete, onNext]);
 
-  const parts = EXTERIOR_TYRE_TAB_PARTS[tab];
+  const renderHandlers = useMemo<RenderHandlers>(
+    () => ({
+      formData,
+      photoDetails,
+      onTextChange: handleTextChange,
+      onSelectChange: handleSelectChange,
+      onMultiSelectChange: handleMultiSelectChange,
+      onPhotoSlotPress: handlePhotoSlotPress,
+      onGroupPress: handleGroupPress,
+      onDirectCapture: handleDirectCapture,
+    }),
+    [
+      formData,
+      photoDetails,
+      handleTextChange,
+      handleSelectChange,
+      handleMultiSelectChange,
+      handlePhotoSlotPress,
+      handleGroupPress,
+      handleDirectCapture,
+    ],
+  );
 
-  // ── Part detail view ────────────────────────────────────────────────────────
+  // ── Loading / error states ───────────────────────────────────────────────────
 
-  if (editor.mode === 'part') {
+  if (loadingState === 'loading' && sectionNodes.length === 0) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-        <InspectionImageDetailPanel
-          title={editor.label}
-          subtitle={`Appl. ID : ${appointmentId}`}
-          issueOptions={EXTERIOR_PART_ISSUE_OPTIONS}
-          value={exteriorTyreParts[editor.partId]}
-          onChange={(block) => updatePart(editor.partId, block)}
-          onBack={() => setEditor({ mode: 'list' })}
-          layout="photoFirstSubmit"
-          photoLabel="Photo"
-          listBackTitle="Exterior + Tyres"
-        />
+        <AppHeader title="Exterior + Tyres" subtitle="Step 6 of 6" onBack={onBack} />
+        <View style={styles.centred}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading form…</Text>
+        </View>
       </SafeAreaView>
     );
   }
 
-  // ── Main list view ──────────────────────────────────────────────────────────
+  if (loadingState === 'error' && sectionNodes.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+        <AppHeader title="Exterior + Tyres" subtitle="Step 6 of 6" onBack={onBack} />
+        <View style={styles.centred}>
+          <Text style={styles.errorIcon}>⚠️</Text>
+          <Text style={styles.errorText}>Failed to load form fields.</Text>
+          <AppButton label="Retry" onPress={loadCatalog} size="sm" fullWidth={false} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const activeSection = mergedSections.find((sec) => sec.key === resolvedActiveKey);
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-      <AppHeader
-        title="Exterior + Tyres"
-        subtitle={`Appl. ID : ${appointmentId}`}
-        onBack={onBack}
-      />
+      <AppHeader title="Exterior + Tyres" subtitle="Step 6 of 6" onBack={onBack} />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.progressWrap}>
+        <ProgressRow filled={filledCount} total={requiredFields.length} />
+      </View>
 
-        {/* ── Walkaround tab strip with fade-right scroll hint ── */}
-        <View style={styles.tabScrollWrapper}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.tabScroll}
-            contentContainerStyle={styles.tabScrollContent}>
-            {TAB_ORDER.map((tid) => {
-              const done = tabComplete(tid);
-              const active = tab === tid;
-              return (
-                <TouchableOpacity
-                  key={tid}
-                  style={[styles.tabChip, active && styles.tabChipActive]}
-                  onPress={() => setTab(tid)}
-                  activeOpacity={0.85}>
-                  <Text style={styles.tabIcon}>{TAB_DIRECTION_ICON[tid]}</Text>
-                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
-                    {EXTERIOR_TYRE_TAB_LABELS[tid]}
-                  </Text>
-                  {done && (
-                    <Text style={styles.tabCheck}>✓</Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-          {/* Subtle right-edge fade to hint at horizontal scrollability */}
-          <View style={styles.tabScrollFade} pointerEvents="none" />
-        </View>
-
-        {/* ── Walkaround photo rows ── */}
-        <View style={styles.section}>
-          {parts.map((p) => (
-            <InspectionPhotoSummaryRow
-              key={p.id}
-              label={p.label}
-              isRequired={p.required}
-              block={exteriorTyreParts[p.id]}
-              onEdit={() => setEditor({ mode: 'part', partId: p.id, label: p.label })}
-            />
-          ))}
-        </View>
-
-        {/* ── Body panels ── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Body panels</Text>
-          <View style={styles.sectionTitleDivider} />
-          <ConditionSelector
-            label="Front Bumper"
-            value={data.frontBumper}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { frontBumper: v })}
-            isRequired
-          />
-          <ConditionSelector
-            label="Rear Bumper"
-            value={data.rearBumper}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { rearBumper: v })}
-          />
-          <ConditionSelector
-            label="Bonnet"
-            value={data.bonnet}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { bonnet: v })}
-          />
-          <ConditionSelector
-            label="Boot Lid"
-            value={data.bootLid}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { bootLid: v })}
-          />
-          <YesNoSelector
-            label="Any rust visible?"
-            value={data.rust}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { rust: v })}
+      {mergedSections.length > 1 && (
+        <View style={styles.tabWrap}>
+          <SectionTabBar
+            sections={mergedSections}
+            activeKey={resolvedActiveKey}
+            onSelect={setActiveTabKey}
+            filledPerSection={filledPerSection}
           />
         </View>
+      )}
 
-        {/* ── Tyres (condition) ── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tyres (condition)</Text>
-          <View style={styles.sectionTitleDivider} />
-          <ConditionSelector
-            label="Front Left Tyre"
-            value={data.frontTyreLeft}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { frontTyreLeft: v })}
-            isRequired
-          />
-          <ConditionSelector
-            label="Front Right Tyre"
-            value={data.frontTyreRight}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { frontTyreRight: v })}
-          />
-          <ConditionSelector
-            label="Rear Left Tyre"
-            value={data.rearTyreLeft}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { rearTyreLeft: v })}
-          />
-          <ConditionSelector
-            label="Rear Right Tyre"
-            value={data.rearTyreRight}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { rearTyreRight: v })}
-          />
-          <YesNoSelector
-            label="Spare Tyre Present?"
-            value={data.spareTyre}
-            onChange={(v) => updateFormData(InspectionStepId.Exterior, { spareTyre: v })}
-            isRequired
-          />
-        </View>
-
-        {/* ── Additional photos ── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Additional photos (optional)</Text>
-          <View style={styles.sectionTitleDivider} />
-          <PhotoCapture
-            label="Any damage / issues"
-            hint="Optional: capture any visible damage or defects"
-            imageUri={undefined}
-            onCapture={(uri) => {
-              const existing = (media.additionalImages as string[]) || [];
-              updateFormData(InspectionStepId.Media, {
-                additionalImages: [...existing, uri],
-              });
-            }}
-          />
-        </View>
-
-        {/* ── Info card ── */}
-        <View style={styles.infoCard}>
-          <Text style={styles.infoIcon}>ℹ️</Text>
-          <Text style={styles.infoText}>Complete walkaround photos and grading before review.</Text>
-        </View>
-
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        key={resolvedActiveKey}>
+        {activeSection ? (
+          <View style={styles.sectionCard}>
+            {renderNodes(activeSection.nodes, renderHandlers)}
+          </View>
+        ) : null}
       </ScrollView>
 
-      {/* ── Footer ── */}
+      {/* Photo slot modal (for group file-upload via onPhotoSlotPress) */}
+      <Modal
+        visible={activeSlot !== null}
+        animationType="slide"
+        onRequestClose={handleCloseModal}>
+        <SafeAreaView style={styles.modalSafe} edges={['bottom']}>
+          {activeSlot ? (
+            <InspectionImageDetailPanel
+              title={activeSlot.label}
+              issueOptions={activeSlot.issueOptions}
+              value={photoDetails[activeSlot.storageKey]}
+              onChange={handlePhotoChange}
+              onBack={handleCloseModal}
+              layout="photoFirstSubmit"
+              listBackTitle="Exterior + Tyres"
+              photoLabel="Photo"
+            />
+          ) : null}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Group detail modal (depth ≥ 1 GroupPhotoCard tap) */}
+      <Modal
+        visible={activeGroupNode !== null}
+        animationType="slide"
+        onRequestClose={handleCloseGroupModal}>
+        <SafeAreaView style={styles.modalSafe} edges={['bottom']}>
+          {activeGroupNode ? (
+            <>
+              <AppHeader
+                title={activeGroupNode.label}
+                subtitle="Exterior + Tyres"
+                onBack={handleCloseGroupModal}
+                variant="primary"
+              />
+              <ScrollView
+                contentContainerStyle={styles.groupModalContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled">
+                {(() => {
+                  const node = activeGroupNode.node;
+                  const inputs = getInputs(node);
+                  const children = getChildren(node);
+                  const issueOptions = collectIssueOptions(children);
+                  return (
+                    <>
+                      {inputs.map((input, iIdx) => (
+                        <React.Fragment key={`gm-input-${iIdx}`}>
+                          {renderInput(
+                            input,
+                            node.path,
+                            node.label,
+                            issueOptions,
+                            renderHandlers,
+                          )}
+                        </React.Fragment>
+                      ))}
+                      {children.length > 0 && renderNodes(children, renderHandlers, 1)}
+                    </>
+                  );
+                })()}
+              </ScrollView>
+            </>
+          ) : null}
+        </SafeAreaView>
+      </Modal>
+
       <View style={styles.footer}>
-        {/* Completion summary row */}
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryText}>
-            {completedRequired} of {totalRequired} required parts inspected
-          </Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { flex: progressFraction }]} />
-            <View style={{ flex: 1 - progressFraction }} />
-          </View>
-        </View>
-
-        {/* Consolidated hint — only shown when incomplete */}
         {!isComplete && (
-          <Text style={styles.footerHint}>
-            ⚠️ Complete all required walkaround photos and fields
-          </Text>
+          <Text style={styles.footerHint}>⚠ Complete all required fields to proceed</Text>
         )}
-
         <AppButton
-          label="Next"
+          label="Submit →"
           onPress={handleNext}
           isDisabled={!isComplete}
           testID="step6-next-btn"
@@ -320,165 +950,57 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
   );
 };
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const TAB_CHIP_MIN_WIDTH = hs(80);
-const TAB_SCROLL_FADE_WIDTH = hs(40);
-const PROGRESS_TRACK_HEIGHT = vs(4);
-const SECTION_TITLE_DIVIDER_HEIGHT = vs(1);
-const INFO_CARD_BORDER_WIDTH = 3;
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-
-  content: {
-    padding: spacing.base,
-    paddingBottom: vs(20),
-  },
-
-  // ── Tab strip ──────────────────────────────────────────────────────────────
-
-  tabScrollWrapper: {
-    marginBottom: vs(12),
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  tabScroll: {
-    flexGrow: 0,
-  },
-  tabScrollContent: {
-    paddingRight: TAB_SCROLL_FADE_WIDTH, // leave room so last chip isn't hidden by fade
-  },
-  /** Gradient approximation: opaque-to-transparent white fade on the right edge */
-  tabScrollFade: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    width: TAB_SCROLL_FADE_WIDTH,
-    backgroundColor: colors.background,
-    opacity: 0.75,
-  },
-
-  tabChip: {
-    minWidth: TAB_CHIP_MIN_WIDTH,
-    paddingVertical: vs(10),
-    paddingHorizontal: spacing.md,
-    marginRight: spacing.sm,
-    borderRadius: borderRadius.md,
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  modalSafe: { flex: 1, backgroundColor: colors.surface },
+  progressWrap: { paddingHorizontal: spacing.base, paddingTop: verticalSpacing.sm },
+  tabWrap: { paddingHorizontal: spacing.base, paddingBottom: verticalSpacing.xs },
+  scroll: { flex: 1 },
+  content: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
+  sectionCard: {
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    padding: spacing.base,
+    ...Platform.select({
+      android: { elevation: 2 },
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 1,
+        shadowRadius: 4,
+      },
+    }),
+  },
+  centred: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: verticalSpacing.base,
+    padding: spacing.xl,
   },
-  tabChipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
-  },
-  tabIcon: {
-    fontSize: vs(20),
-    marginBottom: vs(2),
-  },
-  tabLabel: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semiBold,
+  loadingText: { fontSize: typography.fontSize.sm, color: colors.textSecondary },
+  errorIcon: { fontSize: 40 },
+  errorText: {
+    fontSize: typography.fontSize.sm,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
-  tabLabelActive: {
-    color: colors.primary,
-  },
-  /** Inline checkmark below the label — no absolute positioning */
-  tabCheck: {
-    marginTop: vs(3),
-    fontSize: typography.fontSize.xs,
-    color: colors.success,
-    fontWeight: typography.fontWeight.bold,
-  },
-
-  // ── Sections ───────────────────────────────────────────────────────────────
-
-  section: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.base,
-    marginBottom: vs(16),
-  },
-  sectionTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: vs(8),
-  },
-  /** Thin separator line below section title */
-  sectionTitleDivider: {
-    height: SECTION_TITLE_DIVIDER_HEIGHT,
-    backgroundColor: colors.border,
-    marginBottom: vs(12),
-  },
-
-  // ── Info card ──────────────────────────────────────────────────────────────
-
-  infoCard: {
-    flexDirection: 'row',
-    backgroundColor: colors.primaryLight,
-    borderRadius: borderRadius.md,
-    borderLeftWidth: INFO_CARD_BORDER_WIDTH,
-    borderLeftColor: colors.primary,
-    padding: spacing.base,
-    marginBottom: vs(16),
-    alignItems: 'flex-start',
-  },
-  infoIcon: {
-    fontSize: vs(18),
-    marginRight: spacing.sm,
-  },
-  infoText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary,
-    flex: 1,
-    lineHeight: typography.lineHeight.base,
-  },
-
-  // ── Footer ─────────────────────────────────────────────────────────────────
-
   footer: {
     padding: spacing.base,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-
-  summaryRow: {
-    marginBottom: vs(8),
-  },
-  summaryText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.textSecondary,
-    marginBottom: vs(4),
-  },
-  progressTrack: {
-    flexDirection: 'row',
-    height: PROGRESS_TRACK_HEIGHT,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.border,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.full,
-  },
-
   footerHint: {
     fontSize: typography.fontSize.xs,
     color: colors.warning,
     textAlign: 'center',
-    marginBottom: vs(8),
+    marginBottom: verticalSpacing.sm,
+    fontWeight: typography.fontWeight.medium,
   },
+  groupModalContent: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
 });
 
 export default Step6Media;

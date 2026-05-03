@@ -120,6 +120,7 @@ export interface NormalisedCatalog {
   airConditioningSectionChildren: CatalogNode[];
   steeringBrakesSectionChildren: CatalogNode[];
   electricalsInteriorsSectionChildren: CatalogNode[];
+  exteriorSectionChildren: CatalogNode[];
 
   airConditioning: {
     acCompressorIssues: string[];
