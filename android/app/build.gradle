@@ -1,6 +1,14 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
+
+// Fix Kotlin metadata version compatibility with Firebase
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    compilerOptions {
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
+    }
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -110,6 +118,15 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // Firebase BoM keeps Firebase SDK versions aligned
+    implementation platform("com.google.firebase:firebase-bom:34.13.0")
+
+    // Firebase Authentication for Google login
+    implementation("com.google.firebase:firebase-auth")
+
+    // Google Sign-In support used by Firebase auth flows
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
