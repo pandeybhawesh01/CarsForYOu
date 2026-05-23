@@ -1,11 +1,13 @@
 /**
  * Cars24 Dealer Inspection App
- * Production-grade React Native application
+ * Production-grade React Native application with Firebase Authentication
  */
 
 import React, { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
+import { AuthProvider } from './src/context/AuthContext';
+import { configureGoogleSignIn } from './src/services/auth';
 import { useCatalogViewModel } from './src/viewmodels/catalogViewModel';
 
 /**
@@ -22,11 +24,25 @@ const CatalogBootstrap: React.FC = () => {
   return null;
 };
 
+/**
+ * GoogleSignInConfig — configures Google Sign-In on app mount
+ */
+const GoogleSignInConfig: React.FC = () => {
+  useEffect(() => {
+    configureGoogleSignIn();
+  }, []);
+
+  return null;
+};
+
 function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
-      <CatalogBootstrap />
-      <RootNavigator />
+      <AuthProvider>
+        <GoogleSignInConfig />
+        <CatalogBootstrap />
+        <RootNavigator />
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }
