@@ -9,6 +9,8 @@ import Step4EngineTransmission from './steps/Step4_Engine';
 import Step5ElectricalsInterior from './steps/Step5_ElectricalsInteriors';
 import Step6ExteriorTyres from './steps/Step6_Media';
 import { useInspectionStore } from '../store/inspectionStore';
+import { useAutoSaveDraft } from '../../../hooks/useAutoSaveDraft';
+import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
 
 type Props = InspectionStackScreenProps<'InspectionStep'>;
 
@@ -23,7 +25,17 @@ const STEP_ORDER = [
 
 const InspectionStepScreen: React.FC<Props> = ({ navigation, route }) => {
   const { stepIndex, inspectionId } = route.params;
-  const { currentLead } = useInspectionStore();
+  const { currentLead, currentSession } = useInspectionStore();
+  const catalog = useCatalogViewModel(selectCatalog);
+
+  // Auto-save draft every 10 seconds (only when inside step screens)
+  // NO unmount save on step navigation (back/next buttons)
+  useAutoSaveDraft({
+    session: currentSession,
+    catalog,
+    enabled: !!currentSession, // Only auto-save when inspection is active
+    saveOnUnmount: false, // Don't save on unmount for step navigation
+  });
 
   const handleNext = useCallback(() => {
     const nextIndex = stepIndex + 1;

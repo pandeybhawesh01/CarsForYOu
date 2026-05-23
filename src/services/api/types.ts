@@ -86,6 +86,7 @@ export interface CatalogApiResponse {
   message: string;
   view: string;
   sections: number;
+  version?: string; // ← Catalog version for cache invalidation (admin-controlled)
   data: CatalogSection[];
 }
 

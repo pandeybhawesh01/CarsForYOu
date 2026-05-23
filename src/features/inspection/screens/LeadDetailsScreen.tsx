@@ -74,15 +74,23 @@ const sectionStyles = StyleSheet.create({
 });
 
 const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
-  const { currentLead } = useInspectionStore();
+  const { currentLead, startInspection } = useInspectionStore();
 
   const handleBack = useCallback(() => navigation.goBack(), [navigation]);
 
-  const handleStartInspection = useCallback(() => {
+  const handleStartInspection = useCallback(async () => {
+    if (!currentLead) return;
+    
+    console.log('[LeadDetails] 🚀 Start Inspection button clicked');
+    
+    // Load draft and start inspection
+    await startInspection(currentLead);
+    
+    // Navigate to inspection home
     navigation.replace('InspectionHome', {
-      inspectionId: currentLead?.id ?? '',
+      inspectionId: currentLead.id,
     });
-  }, [navigation, currentLead]);
+  }, [navigation, currentLead, startInspection]);
 
   if (!currentLead) {
     return (

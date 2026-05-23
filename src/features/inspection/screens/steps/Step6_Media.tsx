@@ -405,7 +405,9 @@ function renderInput(
         />
         {subOpts.map((sub, sIdx) => {
           const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
-          const subPath = `${nodePath}.${String(sub.value)}`;
+          // SubOptions are siblings of the parent field, not nested under the selected value
+          const parentPath = nodePath.split('.').slice(0, -1).join('.');
+          const subPath = parentPath ? `${parentPath}.${String(sub.value)}` : String(sub.value);
           const subLabel = cleanLabel(sub.label);
           if (subInputType === 'file-upload') {
             // e.g. sunroof Image upload — only shown when parent option (true) is selected

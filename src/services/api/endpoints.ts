@@ -13,8 +13,8 @@ const DEV_API_BASE_URL =
     ? 'http://10.0.2.2:3000/api/v1'
     : 'http://localhost:3000/api/v1';
 
-// FORCE PRODUCTION URL - Always use Railway backend
-export const API_BASE_URL = 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
+// FORCE LOCAL DEV SERVER - Use computer's IP for physical device
+export const API_BASE_URL = 'http://192.168.1.37:3002/api/v1';
 
 // Uncomment below to use local dev server instead:
 // export const API_BASE_URL = __DEV__
@@ -32,6 +32,10 @@ export const ENDPOINTS = {
   INSPECTION_CATALOG: `${API_BASE_URL}/forms/inspection-report/catalog`,
   /** Final inspection report submit. */
   INSPECTION_SUBMIT: `${API_BASE_URL}/forms/inspection-report/submit`,
+  /** Draft auto-save (Redis). */
+  DRAFT_SAVE: `${API_BASE_URL}/forms/inspection-report/draft/submit`,
+  /** Draft load (Redis). */
+  DRAFT_LOAD: (appointmentId: string) => `${API_BASE_URL}/forms/inspection-report/draft/${appointmentId}`,
 } as const;
 
 // Log the API configuration on module load

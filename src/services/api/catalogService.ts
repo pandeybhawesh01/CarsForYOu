@@ -8,6 +8,7 @@
 
 import { ENDPOINTS } from './endpoints';
 import { httpGet } from './httpClient';
+import { catalogCache } from '../cache/catalogCache';
 import type {
   CatalogApiResponse,
   CatalogField,
@@ -211,7 +212,23 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
 }
 
 export const catalogService = {
+  /**
+   * Fetches catalog with version-based cache invalidation:
+   * 1. Check AsyncStorage cache
+   * 2. Fetch backend version (lightweight HEAD request or from API)
+   * 3. If versions match → use cache
+   * 4. If versions differ → clear cache, fetch fresh
+   * 
+   * This allows admin to invalidate all app caches by changing the version.
+   */
   async fetchCatalog(): Promise<NormalisedCatalog> {
+    console.log('[CatalogService] 🔍 Checking cache...');
+    
+    // Get cached version
+    const cachedVersion = await catalogCache.getVersion();
+    const cached = await catalogCache.get();
+    
+    // Fetch from API to get latest version
     const url = `${ENDPOINTS.INSPECTION_CATALOG}?view=tree`;
     console.log('[CatalogService] 📥 Fetching catalog from:', url);
     
@@ -219,15 +236,49 @@ export const catalogService = {
     
     if (!raw.success) {
       console.error('[CatalogService] ❌ Catalog fetch failed:', raw.message);
+      // If API fails but we have cache, use it
+      if (cached) {
+        console.log('[CatalogService] ⚠️ API failed, using cached catalog');
+        return cached;
+      }
       throw new Error(raw.message ?? 'Catalog fetch failed');
     }
     
-    console.log('[CatalogService] ✅ Catalog fetched successfully');
-    console.log('[CatalogService] 📊 Sections found:', raw.data.length);
+    const backendVersion = raw.version || 'unknown';
+    console.log('[CatalogService] 📊 Backend version:', backendVersion);
+    console.log('[CatalogService] 💾 Cached version:', cachedVersion || 'none');
     
-    const normalized = normalise(raw);
-    console.log('[CatalogService] 🔧 Catalog normalized and ready');
+    // Version mismatch or no cache → use fresh data
+    if (!cached || cachedVersion !== backendVersion) {
+      if (cachedVersion && cachedVersion !== backendVersion) {
+        console.log('[CatalogService] 🔄 Version mismatch! Admin cleared cache.');
+        await catalogCache.clear();
+      }
+      
+      console.log('[CatalogService] ✅ Using fresh catalog from API');
+      console.log('[CatalogService] 📊 Sections found:', raw.data.length);
+      
+      const normalized = normalise(raw);
+      console.log('[CatalogService] 🔧 Catalog normalized and ready');
+      
+      // Cache with version
+      console.log('[CatalogService] 💾 Saving to cache with version:', backendVersion);
+      await catalogCache.set(normalized, backendVersion);
+      
+      return normalized;
+    }
     
-    return normalized;
+    // Version match → use cache
+    console.log('[CatalogService] ✅ Cache hit! Versions match, using cached catalog');
+    return cached;
+  },
+
+  /**
+   * Force refresh catalog from API, bypassing cache.
+   */
+  async refreshCatalog(): Promise<NormalisedCatalog> {
+    console.log('[CatalogService] 🔄 Force refresh requested. Clearing cache...');
+    await catalogCache.clear();
+    return this.fetchCatalog();
   },
 };

@@ -21,6 +21,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface CacheEntry {
   data: NormalisedCatalog;
+  version: string; // Backend catalog version
   cachedAt: number; // Unix timestamp ms
 }
 
@@ -71,12 +72,23 @@ export const catalogCache = {
     }
   },
 
-  async set(data: NormalisedCatalog): Promise<void> {
+  async set(data: NormalisedCatalog, version: string): Promise<void> {
     try {
-      const entry: CacheEntry = { data, cachedAt: Date.now() };
+      const entry: CacheEntry = { data, version, cachedAt: Date.now() };
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(entry));
     } catch {
       // Cache write failure is non-fatal — app continues with in-memory data
+    }
+  },
+
+  async getVersion(): Promise<string | null> {
+    try {
+      const raw = await AsyncStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const entry: CacheEntry = JSON.parse(raw);
+      return entry.version || null;
+    } catch {
+      return null;
     }
   },
 

@@ -18,6 +18,8 @@ import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
 import { theme } from '../../../theme';
 import { hs, vs } from '../../../utils/scaling';
+import { useAutoSaveDraft } from '../../../hooks/useAutoSaveDraft';
+import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
 
 type Props = InspectionStackScreenProps<'InspectionHome'>;
 
@@ -57,6 +59,15 @@ const SectionCard: React.FC<{
 
 const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
   const { currentLead, currentSession } = useInspectionStore();
+  const catalog = useCatalogViewModel(selectCatalog);
+  
+  // Auto-save with unmount save enabled (for app close or back to dashboard)
+  useAutoSaveDraft({
+    session: currentSession,
+    catalog,
+    enabled: !!currentSession,
+    saveOnUnmount: true, // Save on unmount when leaving inspection flow
+  });
 
   const completedCount = useMemo(
     () => currentSession?.steps.filter((s) => s.isCompleted).length ?? 0,

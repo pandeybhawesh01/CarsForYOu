@@ -184,7 +184,10 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
         <ChipSelector label={label} options={input.options} value={current} onChange={(val) => handlers.onSelectChange(nodePath, val)} />
         {subOpts.map((sub, sIdx) => {
           const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
-          const subPath = `${nodePath}.${String(sub.value)}`; const subLabel = cleanLabel(sub.label);
+          // SubOptions are siblings of the parent field, not nested under the selected value
+          const parentPath = nodePath.split('.').slice(0, -1).join('.');
+          const subPath = parentPath ? `${parentPath}.${String(sub.value)}` : String(sub.value);
+          const subLabel = cleanLabel(sub.label);
           if (subInputType === 'file-upload') {
             // Only shown when parent option (true) is selected — dispatch on sub.value (stable), not label
             const block = handlers.photoDetails[subPath];

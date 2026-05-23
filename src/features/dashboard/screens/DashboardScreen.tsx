@@ -34,7 +34,7 @@ const FILTER_TABS: { label: string; value: FilterTab }[] = [
 const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('ALL');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { startInspection } = useInspectionStore();
+  const { setCurrentLead } = useInspectionStore();
 
   const filteredLeads = useMemo(() => {
     if (activeFilter === 'ALL') return mockInspections;
@@ -43,14 +43,15 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleCardPress = useCallback(
     (lead: InspectionLead) => {
-      startInspection(lead);
+      // Just set the lead, don't load draft yet
+      setCurrentLead(lead);
       // @ts-ignore – cross-navigator navigation
       navigation.navigate('InspectionNavigator', {
         screen: 'LeadDetails',
         params: { inspectionId: lead.id },
       });
     },
-    [navigation, startInspection],
+    [navigation, setCurrentLead],
   );
 
   const handleRefresh = useCallback(() => {

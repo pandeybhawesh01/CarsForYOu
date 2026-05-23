@@ -1,20 +1,21 @@
 /**
  * Catalog ViewModel — MVVM layer between the service and the UI.
  *
- * Responsibilities:
- *  1. Orchestrate cache-first loading strategy.
- *  2. Expose loading / error state to the UI.
- *  3. Provide typed option accessors consumed by step screens.
+ * Caching Strategy (Version-Based with AsyncStorage):
+ *  - On app open: check AsyncStorage cache
+ *  - Fetch backend version from API
+ *  - If versions match → use cache (fast!)
+ *  - If versions differ → admin cleared cache, fetch fresh
+ *  - Store in both Zustand (in-memory) and AsyncStorage (persistent)
  *
- * Cache strategy (stale-while-revalidate):
- *  - On init: serve cached data immediately (if available) → UI renders fast.
- *  - Simultaneously fetch fresh data in background.
- *  - If cache is empty: show loading state until first fetch completes.
+ * Admin Control:
+ *  - Admin changes catalog → increments version
+ *  - All apps detect version mismatch → clear cache → fetch fresh
+ *  - Centralized cache invalidation without app update!
  */
 
 import { create } from 'zustand';
 import { catalogService } from '../services/api/catalogService';
-import { catalogCache } from '../services/cache/catalogCache';
 import type { NormalisedCatalog } from '../services/api/types';
 
 // ─── State shape ──────────────────────────────────────────────────────────────
@@ -103,32 +104,27 @@ export const useCatalogViewModel = create<CatalogState>((set, get) => ({
     // Avoid duplicate loads
     if (get().loadingState === 'loading') return;
 
+    // If catalog already loaded in this session, reuse it
+    if (get().catalog !== null) {
+      console.log('[CatalogViewModel] ♻️ Catalog already loaded in this session, reusing');
+      return;
+    }
+
     set({ loadingState: 'loading', error: null });
 
     try {
-      // 1. Try cache first — serve immediately for fast startup
-      const cached = await catalogCache.get();
-      if (cached) {
-        set({ catalog: cached, loadingState: 'success' });
-        // 2. Revalidate in background (stale-while-revalidate)
-        catalogService
-          .fetchCatalog()
-          .then(async (fresh) => {
-            await catalogCache.set(fresh);
-            set({ catalog: fresh });
-          })
-          .catch(() => {
-            // Background revalidation failure is silent — cached data is still valid
-          });
-        return;
-      }
-
-      // 3. No cache — fetch fresh and show loading state
-      const fresh = await catalogService.fetchCatalog();
-      await catalogCache.set(fresh);
-      set({ catalog: fresh, loadingState: 'success', error: null });
+      console.log('[CatalogViewModel] 🚀 Loading catalog...');
+      
+      // catalogService handles version-based caching
+      // It will check AsyncStorage, compare versions, and decide whether to use cache or fetch fresh
+      const catalog = await catalogService.fetchCatalog();
+      
+      console.log('[CatalogViewModel] ✅ Catalog loaded successfully');
+      set({ catalog, loadingState: 'success', error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load catalog';
+      console.error('[CatalogViewModel] ❌ Catalog load failed:', message);
+      
       // Fall back to hardcoded values so the app remains usable
       set({
         catalog: FALLBACK_CATALOG,
@@ -139,9 +135,22 @@ export const useCatalogViewModel = create<CatalogState>((set, get) => ({
   },
 
   refreshCatalog: async () => {
-    await catalogCache.clear();
+    console.log('[CatalogViewModel] 🔄 Refresh catalog requested');
     set({ catalog: null, loadingState: 'idle', error: null });
-    await get().loadCatalog();
+    // Use catalogService.refreshCatalog() which clears cache and fetches fresh
+    try {
+      const fresh = await catalogService.refreshCatalog();
+      set({ catalog: fresh, loadingState: 'success', error: null });
+      console.log('[CatalogViewModel] ✅ Catalog refreshed successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to refresh catalog';
+      console.error('[CatalogViewModel] ❌ Catalog refresh failed:', message);
+      set({
+        catalog: FALLBACK_CATALOG,
+        loadingState: 'error',
+        error: message,
+      });
+    }
   },
 }));
 

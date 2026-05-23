@@ -11,7 +11,8 @@ interface InspectionState {
 }
 
 interface InspectionActions {
-  startInspection: (lead: InspectionLead) => void;
+  setCurrentLead: (lead: InspectionLead) => void;
+  startInspection: (lead: InspectionLead) => Promise<void>;
   updateFormData: (
     stepId: InspectionStepId,
     data: Partial<InspectionFormData[keyof InspectionFormData]>,
@@ -48,13 +49,64 @@ export const useInspectionStore = create<InspectionStore>((set) => ({
   isLoading: false,
   error: null,
 
-  startInspection: (lead) => {
-    console.log('[InspectionStore] 🚀 Starting inspection for lead:', lead);
+  // Set lead without loading draft (called from dashboard card click)
+  setCurrentLead: (lead) => {
+    console.log('[InspectionStore] 📋 Setting current lead:', lead.appointmentId);
     set({
       currentLead: lead,
       currentSession: createEmptySession(lead),
       error: null,
     });
+  },
+
+  // Start inspection with draft loading (called from "Start Inspection" button)
+  startInspection: async (lead) => {
+    console.log('[InspectionStore] 🚀 Starting inspection for lead:', lead.appointmentId);
+    
+    // Create empty session first
+    const emptySession = createEmptySession(lead);
+    
+    set({
+      currentLead: lead,
+      currentSession: emptySession,
+      error: null,
+      isLoading: true,
+    });
+    
+    // Try to load draft from Redis (non-blocking)
+    try {
+      const { draftService } = await import('../../../services/api/draftService');
+      const draft = await draftService.loadDraft(lead.appointmentId);
+      
+      if (draft && draft.formData) {
+        console.log('[InspectionStore] 📥 Draft found! Pre-filling form data...');
+        
+        // Merge draft data into session
+        set((state) => {
+          if (!state.currentSession) return state;
+          
+          return {
+            currentSession: {
+              ...state.currentSession,
+              formData: {
+                ...state.currentSession.formData,
+                ...draft.formData,
+              },
+            },
+            isLoading: false,
+          };
+        });
+        
+        console.log('[InspectionStore] ✅ Draft loaded and applied');
+      } else {
+        console.log('[InspectionStore] ℹ️ No draft found, starting fresh');
+        set({ isLoading: false });
+      }
+    } catch (error) {
+      console.error('[InspectionStore] ❌ Failed to load draft:', error);
+      // Continue with empty session
+      set({ isLoading: false });
+    }
   },
 
   updateFormData: (stepId, data) => {

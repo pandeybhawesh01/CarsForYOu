@@ -249,7 +249,11 @@ export function buildFinalInspectionPayload(
   mergeObjects(formData, photoRoot);
 
   console.log('[PayloadBuilder] ✅ Final payload built successfully');
-  console.log('[PayloadBuilder] 📦 Payload structure:', JSON.stringify(formData, null, 2));
+  console.log('[PayloadBuilder] 📦 Full payload:', JSON.stringify({
+    appointmentId: session.appointmentId,
+    finalSubmit: true,
+    formData,
+  }, null, 2));
 
   return {
     appointmentId: session.appointmentId,
