@@ -14,6 +14,7 @@ import InspectionImageDetailPanel from '../../components/InspectionImageDetailPa
 import PhotoCapture from '../../components/PhotoCapture';
 import VideoCapture from '../../components/VideoCapture';
 import MultiSelectChips from '../../components/MultiSelectChips';
+import MultiSelectWithSubOptions from '../../components/MultiSelectWithSubOptions';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
 import { colors } from '../../../../constants/colors';
@@ -103,7 +104,76 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
   }
   if (input.inputType === 'multi-select') {
     const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
-    return <MultiSelectChips key={nodePath} label={label} options={input.options} selected={current} onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)} />;
+
+    // Check if any option has modal-type subOptions (inputType: "select")
+    const hasModalSubOptions = input.options.some(opt => {
+      const subOpts = opt.subOptions1 ?? [];
+      const optInputType = (opt as unknown as Record<string, string>).inputType;
+      return subOpts.length > 0 && (optInputType === 'select' || optInputType === 'multi-select');
+    });
+
+    if (hasModalSubOptions) {
+      const subValues: Record<string, string | string[]> = {};
+      input.options.forEach(opt => {
+        const val = String(opt.value);
+        const optInputType = (opt as unknown as Record<string, string>).inputType;
+        const subPath = `${nodePath}.${val}`;
+        if (optInputType === 'multi-select') {
+          subValues[val] = (handlers.formData[subPath] as string[] | undefined) ?? [];
+        } else {
+          subValues[val] = String((handlers.formData[subPath] as string | undefined) ?? '');
+        }
+      });
+
+      return (
+        <MultiSelectWithSubOptions
+          key={nodePath}
+          label={label}
+          options={input.options}
+          selected={current}
+          subValues={subValues}
+          onChange={(newSelected, newSubValues) => {
+            handlers.onMultiSelectChange(nodePath, newSelected);
+            input.options.forEach(opt => {
+              const val = String(opt.value);
+              const optInputType = (opt as unknown as Record<string, string>).inputType;
+              const subPath = `${nodePath}.${val}`;
+              const subVal = newSubValues[val];
+              if (subVal !== undefined) {
+                if (optInputType === 'multi-select') {
+                  handlers.onMultiSelectChange(subPath, Array.isArray(subVal) ? subVal : []);
+                } else {
+                  handlers.onSelectChange(subPath, Array.isArray(subVal) ? (subVal[0] ?? '') : subVal);
+                }
+              }
+            });
+          }}
+        />
+      );
+    }
+
+    const selectedOptionsWithSubs = input.options.filter(opt =>
+      current.includes(String(opt.value)) && opt.subOptions1 && opt.subOptions1.length > 0
+    );
+    return (
+      <React.Fragment key={nodePath}>
+        <MultiSelectChips key={nodePath} label={label} options={input.options} selected={current} onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)} />
+        {selectedOptionsWithSubs.map((selectedOpt, idx) => {
+          const subOpts = selectedOpt.subOptions1 ?? [];
+          return subOpts.map((sub, sIdx) => {
+            const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
+            const subPath = `${nodePath}.${String(selectedOpt.value)}.${String(sub.value)}`;
+            const subLabel = `${cleanLabel(selectedOpt.label)} - ${cleanLabel(sub.label)}`;
+            if (subInputType === 'multi-select') {
+              const s2 = ((sub as unknown as Record<string, unknown[]>).subOptions2 ?? []).map((x) => ({ value: (x as Record<string, unknown>).value as string, label: (x as Record<string, unknown>).label as string, dataType: 'STRING' as const, subOptions1: [] }));
+              const cur = (handlers.formData[subPath] as string[] | undefined) ?? [];
+              return <MultiSelectChips key={`${nodePath}-${idx}-sub-${sIdx}`} label={subLabel} options={s2} selected={cur} onChange={(vals) => handlers.onMultiSelectChange(subPath, vals)} />;
+            }
+            return null;
+          });
+        })}
+      </React.Fragment>
+    );
   }
   if (input.inputType === 'select') {
     const current = String((handlers.formData[nodePath] as string | undefined) ?? '');
@@ -243,18 +313,11 @@ const Step3SteeringBrakes: React.FC<Props> = ({ onNext, onBack }) => {
     updateFormData(InspectionStepId.Media, { documentPhotoDetails: { ...prev, [activeSlot.storageKey]: block } });
   }, [activeSlot, currentSession?.formData.media?.documentPhotoDetails, updateFormData]);
 
+  const enforceRequired = false;
   const { requiredFields, filledCount } = useMemo(() => {
-    const required: string[] = []; const filled: string[] = [];
-    const checkNode = (node: CatalogNode) => {
-      getInputs(node).forEach((input) => {
-        if (input.inputType === 'select') { required.push(node.path); if (formData[node.path] !== undefined && formData[node.path] !== '') filled.push(node.path); }
-        else if (input.inputType === 'file-upload' && input.options.length > 0) { const slot = `${node.path}.${input.options[0].value}`; required.push(slot); if (photoDetails[slot]?.photos?.[0]) filled.push(slot); }
-      });
-      getChildren(node).forEach(checkNode);
-    };
-    sectionNodes.forEach(checkNode);
-    return { requiredFields: required, filledCount: filled.length };
-  }, [sectionNodes, formData, photoDetails]);
+    // When enforceRequired is false, return empty arrays so submission is always allowed
+    return { requiredFields: [], filledCount: 0 };
+  }, []);
 
   const filledPerSection = useMemo(() => {
     const result: Record<string, number> = {};
@@ -272,8 +335,25 @@ const Step3SteeringBrakes: React.FC<Props> = ({ onNext, onBack }) => {
     return result;
   }, [mergedSections, formData, photoDetails]);
 
-  const isComplete = filledCount === requiredFields.length && requiredFields.length > 0;
-  const handleNext = useCallback(() => { if (isComplete) { markStepComplete(InspectionStepId.Interior); onNext(); } }, [isComplete, markStepComplete, onNext]);
+  const isComplete = requiredFields.length === 0 || filledCount === requiredFields.length;
+  const canProceed = __DEV__ || isComplete;
+  const currentSectionIndex = mergedSections.findIndex((s) => s.key === resolvedActiveKey);
+  const hasNextSection =
+    currentSectionIndex >= 0 && currentSectionIndex < mergedSections.length - 1;
+  const handleNext = useCallback(() => {
+    console.log('[Step3-Interior] 🔄 Next button pressed');
+    if (hasNextSection) {
+      console.log('[Step3-Interior] ➡️ Moving to next section:', mergedSections[currentSectionIndex + 1].key);
+      setActiveTabKey(mergedSections[currentSectionIndex + 1].key);
+      return;
+    }
+    if (canProceed) {
+      console.log('[Step3-Interior] ✅ Interior step complete - proceeding to next step');
+      console.log('[Step3-Interior] 📊 Current Interior form data:', formData);
+      markStepComplete(InspectionStepId.Interior);
+      onNext();
+    }
+  }, [canProceed, currentSectionIndex, hasNextSection, markStepComplete, mergedSections, onNext, setActiveTabKey, formData]);
 
   const renderHandlers = useMemo<RenderHandlers>(() => ({
     formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange,
@@ -320,8 +400,8 @@ const Step3SteeringBrakes: React.FC<Props> = ({ onNext, onBack }) => {
       </Modal>
 
       <View style={s.footer}>
-        {!isComplete && <Text style={s.hint}>⚠ Complete all required fields to proceed</Text>}
-        <AppButton label="Next →" onPress={handleNext} isDisabled={!isComplete} testID="step3-next-btn" />
+        {!hasNextSection && !canProceed && <Text style={s.hint}>⚠ Complete all required fields to proceed</Text>}
+        <AppButton label="Next →" onPress={handleNext} isDisabled={!hasNextSection && !canProceed} testID="step3-next-btn" />
       </View>
     </SafeAreaView>
   );

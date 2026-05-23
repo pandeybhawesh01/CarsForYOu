@@ -187,6 +187,7 @@ export const createEmptySession = (lead: InspectionLead): InspectionSession => (
     basicVerification: {},
     exterior: {},
     interior: {},
+    ac: {},
     engine: {},
     documents: {},
     media: {

@@ -165,7 +165,7 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
     exteriorSectionChildren,
 
     airConditioning: {
-      acCompressorIssues: optionsForPath(fieldsMap, 'acCompressor.issues'),
+      acCompressorIssues: optionsForPath(fieldsMap, 'accompressor.issues'),
       acControlPanelIssues: optionsForPath(fieldsMap, 'acControlPanel.issues'),
       acCoolingIssues: optionsForPath(fieldsMap, 'acCooling.issues'),
       blowerMotorIssues: optionsForPath(fieldsMap, 'blowerMotor.issues'),
@@ -212,12 +212,22 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
 
 export const catalogService = {
   async fetchCatalog(): Promise<NormalisedCatalog> {
-    const raw = await httpGet<CatalogApiResponse>(
-      `${ENDPOINTS.INSPECTION_CATALOG}?view=tree`,
-    );
+    const url = `${ENDPOINTS.INSPECTION_CATALOG}?view=tree`;
+    console.log('[CatalogService] 📥 Fetching catalog from:', url);
+    
+    const raw = await httpGet<CatalogApiResponse>(url);
+    
     if (!raw.success) {
+      console.error('[CatalogService] ❌ Catalog fetch failed:', raw.message);
       throw new Error(raw.message ?? 'Catalog fetch failed');
     }
-    return normalise(raw);
+    
+    console.log('[CatalogService] ✅ Catalog fetched successfully');
+    console.log('[CatalogService] 📊 Sections found:', raw.data.length);
+    
+    const normalized = normalise(raw);
+    console.log('[CatalogService] 🔧 Catalog normalized and ready');
+    
+    return normalized;
   },
 };

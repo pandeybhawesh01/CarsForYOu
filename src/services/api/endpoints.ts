@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 /**
  * API Endpoints — single source of truth for all backend URLs.
  *
@@ -6,8 +8,18 @@
  * environment config (e.g. react-native-config or a .env file).
  */
 
-export const API_BASE_URL =
-  'https://inspection-backend-production-cdac.up.railway.app/api/v1';
+const DEV_API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000/api/v1'
+    : 'http://localhost:3000/api/v1';
+
+// FORCE PRODUCTION URL - Always use Railway backend
+export const API_BASE_URL = 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
+
+// Uncomment below to use local dev server instead:
+// export const API_BASE_URL = __DEV__
+//   ? DEV_API_BASE_URL
+//   : 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
 
 /**
  * ⚠️  HARDCODED KEY — replace with your real key or load from env.
@@ -18,4 +30,11 @@ export const API_KEY = 'test';
 export const ENDPOINTS = {
   /** Inspection form catalog (all dropdown / multi-select options). */
   INSPECTION_CATALOG: `${API_BASE_URL}/forms/inspection-report/catalog`,
+  /** Final inspection report submit. */
+  INSPECTION_SUBMIT: `${API_BASE_URL}/forms/inspection-report/submit`,
 } as const;
+
+// Log the API configuration on module load
+console.log('[API Config] 🌐 Base URL:', API_BASE_URL);
+console.log('[API Config] 📋 Catalog endpoint:', ENDPOINTS.INSPECTION_CATALOG);
+console.log('[API Config] 📤 Submit endpoint:', ENDPOINTS.INSPECTION_SUBMIT);

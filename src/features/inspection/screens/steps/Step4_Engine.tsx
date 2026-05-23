@@ -29,6 +29,7 @@ import InspectionImageDetailPanel from '../../components/InspectionImageDetailPa
 import PhotoCapture from '../../components/PhotoCapture';
 import VideoCapture from '../../components/VideoCapture';
 import MultiSelectChips from '../../components/MultiSelectChips';
+import MultiSelectWithSubOptions from '../../components/MultiSelectWithSubOptions';
 import AppButton from '../../../../components/AppButton';
 import AppHeader from '../../../../components/AppHeader';
 import { colors } from '../../../../constants/colors';
@@ -128,6 +129,16 @@ function mergeByKey(nodes: CatalogNode[]): MergedSection[] {
 
 // ─── Render handlers ──────────────────────────────────────────────────────────
 
+interface ActiveSubOptionsModal {
+  parentPath: string;
+  parentLabel: string;
+  parentValue: string;
+  subOptions: CatalogOption[];
+  inputType: 'select' | 'multi-select';  // Added to support both types
+  currentValue: string | string[];  // Can be single value or array
+  onConfirm?: (value: string | string[]) => void; // Called when selection is confirmed
+}
+
 interface RenderHandlers {
   formData: Record<string, unknown>;
   photoDetails: Record<string, PhotoIssueInspectionBlock>;
@@ -137,6 +148,7 @@ interface RenderHandlers {
   onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
   onGroupPress: (group: ActiveGroupNode) => void;
   onDirectCapture: (storageKey: string, uri: string) => void;
+  onSubOptionsPress: (modal: ActiveSubOptionsModal) => void;
 }
 
 // ─── Chip selector ────────────────────────────────────────────────────────────
@@ -168,10 +180,14 @@ const chipStyles = StyleSheet.create({
   container: { marginBottom: verticalSpacing.md },
   label: { fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium, color: colors.textSecondary, marginBottom: verticalSpacing.sm },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: { borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: spacing.base, paddingVertical: verticalSpacing.sm, borderRadius: borderRadius.full, backgroundColor: colors.surface },
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chip: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.border, paddingHorizontal: spacing.base, paddingVertical: verticalSpacing.sm, borderRadius: borderRadius.full, backgroundColor: colors.surface },
+  chipOn: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   chipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   chipText: { fontSize: typography.fontSize.sm, color: colors.text, fontWeight: typography.fontWeight.medium },
+  chipTextOn: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
   chipTextSelected: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
+  checkmark: { fontSize: typography.fontSize.xs, color: colors.primary, fontWeight: typography.fontWeight.bold },
 });
 
 // ─── Group photo card ─────────────────────────────────────────────────────────
@@ -205,6 +221,18 @@ const groupCardStyles = StyleSheet.create({
   chevron: { fontSize: 22, color: colors.textSecondary, fontWeight: typography.fontWeight.bold },
 });
 
+// ─── SubOption card (for select fields with subOptions) ──────────────────────
+
+const subOptionCardStyles = StyleSheet.create({
+  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSecondary, borderRadius: borderRadius.md, padding: spacing.base, marginBottom: verticalSpacing.md, marginTop: verticalSpacing.sm, borderWidth: 1, borderColor: colors.borderLight, gap: spacing.sm },
+  iconWrap: { width: 44, height: 44, borderRadius: borderRadius.sm, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
+  icon: { fontSize: 22 },
+  body: { flex: 1 },
+  label: { fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semiBold, color: colors.text, marginBottom: 2 },
+  sub: { fontSize: typography.fontSize.xs, color: colors.textSecondary },
+  chevron: { fontSize: 22, color: colors.textSecondary, fontWeight: typography.fontWeight.bold },
+});
+
 // ─── Input renderer ───────────────────────────────────────────────────────────
 
 function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, issueOptions: string[], handlers: RenderHandlers): React.ReactNode {
@@ -222,7 +250,90 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
 
   if (input.inputType === 'multi-select') {
     const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
-    return <MultiSelectChips key={nodePath} label={label} options={input.options} selected={current} onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)} />;
+
+    // Check if any option has modal-type subOptions (inputType: "select")
+    const hasModalSubOptions = input.options.some(opt => {
+      const subOpts = opt.subOptions1 ?? [];
+      const optInputType = (opt as unknown as Record<string, string>).inputType;
+      return subOpts.length > 0 && (optInputType === 'select' || optInputType === 'multi-select');
+    });
+
+    if (hasModalSubOptions) {
+      const subValues: Record<string, string | string[]> = {};
+      input.options.forEach(opt => {
+        const val = String(opt.value);
+        const optInputType = (opt as unknown as Record<string, string>).inputType;
+        const subPath = `${nodePath}.${val}`;
+        if (optInputType === 'multi-select') {
+          subValues[val] = (handlers.formData[subPath] as string[] | undefined) ?? [];
+        } else {
+          subValues[val] = String((handlers.formData[subPath] as string | undefined) ?? '');
+        }
+      });
+
+      return (
+        <MultiSelectWithSubOptions
+          key={nodePath}
+          label={label}
+          options={input.options}
+          selected={current}
+          subValues={subValues}
+          onChange={(newSelected, newSubValues) => {
+            handlers.onMultiSelectChange(nodePath, newSelected);
+            input.options.forEach(opt => {
+              const val = String(opt.value);
+              const optInputType = (opt as unknown as Record<string, string>).inputType;
+              const subPath = `${nodePath}.${val}`;
+              const subVal = newSubValues[val];
+              if (subVal !== undefined) {
+                if (optInputType === 'multi-select') {
+                  handlers.onMultiSelectChange(subPath, Array.isArray(subVal) ? subVal : []);
+                } else {
+                  handlers.onSelectChange(subPath, Array.isArray(subVal) ? (subVal[0] ?? '') : subVal);
+                }
+              }
+            });
+          }}
+        />
+      );
+    }
+
+    // Plain multi-select (no modal subOptions)
+    const selectedOptionsWithSubs = input.options.filter(opt =>
+      current.includes(String(opt.value)) && opt.subOptions1 && opt.subOptions1.length > 0
+    );
+    return (
+      <React.Fragment key={nodePath}>
+        <MultiSelectChips label={label} options={input.options} selected={current} onChange={(vals) => handlers.onMultiSelectChange(nodePath, vals)} />
+        {selectedOptionsWithSubs.map((selectedOpt, idx) => {
+          const subOpts = selectedOpt.subOptions1 ?? [];
+          return subOpts.map((sub, sIdx) => {
+            const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
+            const subPath = `${nodePath}.${String(selectedOpt.value)}.${String(sub.value)}`;
+            const subLabel = `${cleanLabel(selectedOpt.label)} - ${cleanLabel(sub.label)}`;
+            if (subInputType === 'multi-select') {
+              const s2 = ((sub as unknown as Record<string, unknown[]>).subOptions2 ?? []).map((x) => ({
+                value: (x as Record<string, unknown>).value as string,
+                label: (x as Record<string, unknown>).label as string,
+                dataType: 'STRING' as const,
+                subOptions1: [],
+              }));
+              const currentSub = (handlers.formData[subPath] as string[] | undefined) ?? [];
+              return (
+                <MultiSelectChips
+                  key={`${nodePath}-${idx}-sub-${sIdx}`}
+                  label={subLabel}
+                  options={s2}
+                  selected={currentSub}
+                  onChange={(vals) => handlers.onMultiSelectChange(subPath, vals)}
+                />
+              );
+            }
+            return null;
+          });
+        })}
+      </React.Fragment>
+    );
   }
 
   if (input.inputType === 'select') {
@@ -230,10 +341,55 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
     // Find the selected option to check for subOptions1
     const selectedOpt = input.options.find((o) => String(o.value) === current);
     const subOpts = selectedOpt?.subOptions1 ?? [];
+    
+    // Check if subOptions should open in a modal (when inputType is 'select')
+    const hasSelectSubOptions = subOpts.length > 0 && subOpts.some(sub => {
+      const subInputType = (sub as unknown as Record<string, string>).inputType;
+      return subInputType === 'select';
+    });
+    
     return (
       <React.Fragment key={nodePath}>
         <ChipSelector label={label} options={input.options} value={current} onChange={(val) => handlers.onSelectChange(nodePath, val)} />
-        {subOpts.length > 0 && subOpts.map((sub, sIdx) => {
+        
+        {/* If selected option has select-type subOptions, show clickable card */}
+        {hasSelectSubOptions && selectedOpt && (
+          <TouchableOpacity
+            style={subOptionCardStyles.card}
+            onPress={() => {
+              const subPath = `${nodePath}.${String(selectedOpt.value)}`;
+              const currentSubValue = String((handlers.formData[subPath] as string | undefined) ?? '');
+              handlers.onSubOptionsPress({
+                parentPath: nodePath,
+                parentLabel: cleanLabel(selectedOpt.label),
+                parentValue: String(selectedOpt.value),
+                subOptions: subOpts,
+                inputType: 'select',
+                currentValue: currentSubValue,
+              });
+            }}
+            activeOpacity={0.75}
+          >
+            <View style={subOptionCardStyles.iconWrap}>
+              <Text style={subOptionCardStyles.icon}>📋</Text>
+            </View>
+            <View style={subOptionCardStyles.body}>
+              <Text style={subOptionCardStyles.label}>Extent of {cleanLabel(selectedOpt.label)}</Text>
+              <Text style={subOptionCardStyles.sub}>
+                {(() => {
+                  const subPath = `${nodePath}.${String(selectedOpt.value)}`;
+                  const currentSubValue = String((handlers.formData[subPath] as string | undefined) ?? '');
+                  const selectedSubOpt = subOpts.find(s => String(s.value) === currentSubValue);
+                  return selectedSubOpt ? `✓ ${selectedSubOpt.label}` : 'Tap to select';
+                })()}
+              </Text>
+            </View>
+            <Text style={subOptionCardStyles.chevron}>›</Text>
+          </TouchableOpacity>
+        )}
+        
+        {/* Render other subOptions inline (file-upload, multi-select, etc.) */}
+        {subOpts.length > 0 && !hasSelectSubOptions && subOpts.map((sub, sIdx) => {
           // subOptions1 items carry inputType as a property (non-standard extension)
           const subInputType = (sub as unknown as Record<string, string>).inputType ?? 'multi-select';
           const subPath = `${nodePath}.${String(sub.value)}`;
@@ -459,6 +615,8 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
 
   const [activeSlot, setActiveSlot] = useState<ActivePhotoSlot | null>(null);
   const [activeGroupNode, setActiveGroupNode] = useState<ActiveGroupNode | null>(null);
+  
+  const [activeSubOptionsModal, setActiveSubOptionsModal] = useState<ActiveSubOptionsModal | null>(null);
 
   const handleTextChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Engine, { [path]: value }), [updateFormData]);
   const handleSelectChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Engine, { [path]: value }), [updateFormData]);
@@ -467,6 +625,62 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
   const handleCloseModal = useCallback(() => setActiveSlot(null), []);
   const handleGroupPress = useCallback((group: ActiveGroupNode) => setActiveGroupNode(group), []);
   const handleCloseGroupModal = useCallback(() => setActiveGroupNode(null), []);
+  
+  // Handler for opening subOptions modal
+  const handleSubOptionsPress = useCallback((modal: ActiveSubOptionsModal) => {
+    console.log('[Step4-Engine] 📋 Opening subOptions modal:', modal.parentLabel);
+    setActiveSubOptionsModal(modal);
+  }, []);
+  const handleCloseSubOptionsModal = useCallback(() => setActiveSubOptionsModal(null), []);
+  
+  // Handler for selecting a subOption value (supports both single and multi-select)
+  const handleSubOptionSelect = useCallback((value: string) => {
+    if (!activeSubOptionsModal) return;
+    const subPath = `${activeSubOptionsModal.parentPath}.${activeSubOptionsModal.parentValue}`;
+    
+    if (activeSubOptionsModal.inputType === 'select') {
+      // Single select — confirm immediately and close
+      console.log('[Step4-Engine] ✅ SubOption selected (single):', value, 'at path:', subPath);
+      if (activeSubOptionsModal.onConfirm) {
+        activeSubOptionsModal.onConfirm(value);
+      } else {
+        handleSelectChange(subPath, value);
+      }
+      setActiveSubOptionsModal(null);
+    } else {
+      // Multi-select — toggle value, keep modal open
+      const currentValues = Array.isArray(activeSubOptionsModal.currentValue)
+        ? activeSubOptionsModal.currentValue
+        : [];
+      const newValues = currentValues.includes(value)
+        ? currentValues.filter(v => v !== value)
+        : [...currentValues, value];
+      
+      console.log('[Step4-Engine] ✅ SubOption toggled (multi):', value, 'new values:', newValues);
+      
+      // Update modal state to reflect new selection (don't save yet — wait for Done)
+      setActiveSubOptionsModal({
+        ...activeSubOptionsModal,
+        currentValue: newValues,
+      });
+    }
+  }, [activeSubOptionsModal, handleSelectChange]);
+  
+  // Handler for confirming multi-select subOptions (Done button)
+  const handleSubOptionsDone = useCallback(() => {
+    if (!activeSubOptionsModal) return;
+    const subPath = `${activeSubOptionsModal.parentPath}.${activeSubOptionsModal.parentValue}`;
+    const finalValues = Array.isArray(activeSubOptionsModal.currentValue)
+      ? activeSubOptionsModal.currentValue
+      : [];
+    console.log('[Step4-Engine] ✅ SubOptions confirmed:', finalValues);
+    if (activeSubOptionsModal.onConfirm) {
+      activeSubOptionsModal.onConfirm(finalValues);
+    } else {
+      handleMultiSelectChange(subPath, finalValues);
+    }
+    setActiveSubOptionsModal(null);
+  }, [activeSubOptionsModal, handleMultiSelectChange]);
 
   const handleDirectCapture = useCallback(
     (storageKey: string, uri: string) => {
@@ -489,26 +703,11 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
   );
 
   // Required field counter
+  const enforceRequired = false;
   const { requiredFields, filledCount } = useMemo(() => {
-    const required: string[] = [];
-    const filled: string[] = [];
-    const checkNode = (node: CatalogNode) => {
-      const inputs = getInputs(node);
-      for (const input of inputs) {
-        if (input.inputType === 'select') {
-          required.push(node.path);
-          if (formData[node.path] !== undefined && formData[node.path] !== '') filled.push(node.path);
-        } else if (input.inputType === 'file-upload' && input.options.length > 0) {
-          const slot = `${node.path}.${input.options[0].value}`;
-          required.push(slot);
-          if (photoDetails[slot]?.photos?.[0]) filled.push(slot);
-        }
-      }
-      getChildren(node).forEach(checkNode);
-    };
-    sectionNodes.forEach(checkNode);
-    return { requiredFields: required, filledCount: filled.length };
-  }, [sectionNodes, formData, photoDetails]);
+    // When enforceRequired is false, return empty arrays so submission is always allowed
+    return { requiredFields: [], filledCount: 0 };
+  }, []);
 
   // Per-tab filled count for badges
   const filledPerSection = useMemo(() => {
@@ -536,15 +735,30 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
     return result;
   }, [mergedSections, formData, photoDetails]);
 
-  const isComplete = filledCount === requiredFields.length && requiredFields.length > 0;
+  const isComplete = requiredFields.length === 0 || filledCount === requiredFields.length;
+  const canProceed = __DEV__ || isComplete;
+  const currentSectionIndex = mergedSections.findIndex((s) => s.key === resolvedActiveKey);
+  const hasNextSection =
+    currentSectionIndex >= 0 && currentSectionIndex < mergedSections.length - 1;
 
   const handleNext = useCallback(() => {
-    if (isComplete) { markStepComplete(InspectionStepId.Engine); onNext(); }
-  }, [isComplete, markStepComplete, onNext]);
+    console.log('[Step4-Engine] 🔄 Next button pressed');
+    if (hasNextSection) {
+      console.log('[Step4-Engine] ➡️ Moving to next section:', mergedSections[currentSectionIndex + 1].key);
+      setActiveTabKey(mergedSections[currentSectionIndex + 1].key);
+      return;
+    }
+    if (canProceed) {
+      console.log('[Step4-Engine] ✅ Engine & Transmission step complete - proceeding to next step');
+      console.log('[Step4-Engine] 📊 Current Engine form data:', formData);
+      markStepComplete(InspectionStepId.Engine);
+      onNext();
+    }
+  }, [canProceed, currentSectionIndex, hasNextSection, markStepComplete, mergedSections, onNext, setActiveTabKey, formData]);
 
   const renderHandlers = useMemo<RenderHandlers>(
-    () => ({ formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange, onMultiSelectChange: handleMultiSelectChange, onPhotoSlotPress: handlePhotoSlotPress, onGroupPress: handleGroupPress, onDirectCapture: handleDirectCapture }),
-    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress, handleGroupPress, handleDirectCapture],
+    () => ({ formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange, onMultiSelectChange: handleMultiSelectChange, onPhotoSlotPress: handlePhotoSlotPress, onGroupPress: handleGroupPress, onDirectCapture: handleDirectCapture, onSubOptionsPress: handleSubOptionsPress }),
+    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress, handleGroupPress, handleDirectCapture, handleSubOptionsPress],
   );
 
   if (loadingState === 'loading' && sectionNodes.length === 0) {
@@ -627,9 +841,58 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
         </SafeAreaView>
       </Modal>
 
+      {/* SubOptions Modal - for select fields with subOptions */}
+      <Modal visible={activeSubOptionsModal !== null} animationType="slide" onRequestClose={handleCloseSubOptionsModal}>
+        <SafeAreaView style={styles.modalSafe} edges={['bottom']}>
+          {activeSubOptionsModal ? (
+            <>
+              <AppHeader 
+                title={`Extent of ${activeSubOptionsModal.parentLabel}`} 
+                subtitle="Select severity level" 
+                onBack={handleCloseSubOptionsModal} 
+                variant="primary" 
+              />
+              <ScrollView contentContainerStyle={styles.subOptionsModalContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.subOptionsContainer}>
+                  {activeSubOptionsModal.subOptions.map((option) => {
+                    const value = String(option.value);
+                    const isMulti = activeSubOptionsModal.inputType === 'multi-select';
+                    const isSelected = isMulti
+                      ? Array.isArray(activeSubOptionsModal.currentValue) && activeSubOptionsModal.currentValue.includes(value)
+                      : activeSubOptionsModal.currentValue === value;
+                    return (
+                      <TouchableOpacity
+                        key={value}
+                        style={[styles.subOptionItem, isSelected && styles.subOptionItemSelected]}
+                        onPress={() => handleSubOptionSelect(value)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.subOptionRadio, isMulti && styles.subOptionCheckbox]}>
+                          {isSelected && <View style={isMulti ? styles.subOptionCheckboxInner : styles.subOptionRadioInner} />}
+                        </View>
+                        <Text style={[styles.subOptionText, isSelected && styles.subOptionTextSelected]}>
+                          {option.label}
+                        </Text>
+                        {isSelected && <Text style={styles.subOptionCheck}>✓</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {/* Done button for multi-select subOptions */}
+                {activeSubOptionsModal.inputType === 'multi-select' && (
+                  <View style={styles.subOptionsDoneWrap}>
+                    <AppButton label="Done" onPress={handleSubOptionsDone} />
+                  </View>
+                )}
+              </ScrollView>
+            </>
+          ) : null}
+        </SafeAreaView>
+      </Modal>
+
       <View style={styles.footer}>
-        {!isComplete && <Text style={styles.footerHint}>⚠ Complete all required fields to proceed</Text>}
-        <AppButton label="Next →" onPress={handleNext} isDisabled={!isComplete} testID="step4-next-btn" />
+        {!hasNextSection && !canProceed && <Text style={styles.footerHint}>⚠ Complete all required fields to proceed</Text>}
+        <AppButton label="Next →" onPress={handleNext} isDisabled={!hasNextSection && !canProceed} testID="step4-next-btn" />
       </View>
     </SafeAreaView>
   );
@@ -652,6 +915,19 @@ const styles = StyleSheet.create({
   footer: { padding: spacing.base, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
   footerHint: { fontSize: typography.fontSize.xs, color: colors.warning, textAlign: 'center', marginBottom: verticalSpacing.sm, fontWeight: typography.fontWeight.medium },
   groupModalContent: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
+  // SubOptions modal styles
+  subOptionsModalContent: { padding: spacing.base, paddingBottom: verticalSpacing.xxl },
+  subOptionsContainer: { gap: verticalSpacing.sm },
+  subOptionItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.base, borderWidth: 2, borderColor: colors.border, gap: spacing.sm },
+  subOptionItemSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  subOptionRadio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  subOptionRadioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.primary },
+  subOptionCheckbox: { borderRadius: 4 },
+  subOptionCheckboxInner: { width: 12, height: 12, borderRadius: 2, backgroundColor: colors.primary },
+  subOptionText: { flex: 1, fontSize: typography.fontSize.base, color: colors.text, fontWeight: typography.fontWeight.medium },
+  subOptionTextSelected: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
+  subOptionCheck: { fontSize: typography.fontSize.lg, color: colors.primary, fontWeight: typography.fontWeight.bold },
+  subOptionsDoneWrap: { marginTop: verticalSpacing.lg, paddingHorizontal: spacing.base },
 });
 
 export default Step4Engine;

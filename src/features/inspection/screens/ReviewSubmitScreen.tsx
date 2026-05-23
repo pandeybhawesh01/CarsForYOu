@@ -18,6 +18,9 @@ import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
 import { vs, hs } from '../../../utils/scaling';
+import { catalogService } from '../../../services/api/catalogService';
+import { buildFinalInspectionPayload } from '../utils/buildFinalInspectionPayload';
+import { inspectionReportService } from '../../../services/api/inspectionReportService';
 
 type Props = InspectionStackScreenProps<'ReviewSubmit'>;
 
@@ -101,26 +104,68 @@ const ReviewSubmitScreen: React.FC<Props> = ({ navigation, route }) => {
   );
 
   const handleSubmit = useCallback(() => {
+    console.log('[ReviewSubmit] 🚀 Submit button pressed - showing confirmation dialog');
     Alert.alert(
       'Submit Inspection',
       'Are you sure you want to submit this inspection? This action cannot be undone.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel', onPress: () => console.log('[ReviewSubmit] ❌ Submission cancelled by user') },
         {
           text: 'Submit',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            if (!currentSession) {
+              console.error('[ReviewSubmit] ⚠️ No current session found!');
+              return;
+            }
+            
+            console.log('[ReviewSubmit] 📤 Starting submission process...');
+            console.log('[ReviewSubmit] 📋 Session ID:', currentSession.id);
+            console.log('[ReviewSubmit] 📋 Appointment ID:', currentSession.appointmentId);
+            
             setIsSubmitting(true);
-            setTimeout(() => {
+            try {
+              // Reference API call requested: GET {baseUrl}/api/v1/forms/inspection-report/catalog?view=tree
+              console.log('[ReviewSubmit] 📥 Fetching latest catalog...');
+              const latestCatalog = await catalogService.fetchCatalog();
+              console.log('[ReviewSubmit] ✅ Catalog fetched successfully');
+
+              // Raw form data snapshot
+              console.log('[ReviewSubmit] 📊 Raw form data:', JSON.stringify(currentSession.formData, null, 2));
+
+              // Final payload (typed + photo blocks shaped)
+              console.log('[ReviewSubmit] 🔧 Building final payload...');
+              const payload = buildFinalInspectionPayload(currentSession, latestCatalog);
+              console.log('[ReviewSubmit] 📦 Final payload to submit:', JSON.stringify(payload, null, 2));
+
+              console.log('[ReviewSubmit] 🌐 Sending to API: POST /api/v1/forms/inspection-report/submit');
+              const resp = await inspectionReportService.submit(
+                payload as unknown as Parameters<typeof inspectionReportService.submit>[0],
+              );
+              console.log('[ReviewSubmit] ✅ API Response:', JSON.stringify(resp, null, 2));
+
+              if (resp.success) {
+                console.log('[ReviewSubmit] 🎉 Submission successful!');
+              } else {
+                console.warn('[ReviewSubmit] ⚠️ Submission returned success=false:', resp.message);
+              }
+
               submitInspection();
-              setIsSubmitting(false);
               navigation.replace('InspectionSuccess', { inspectionId });
-            }, 1500);
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : 'Unknown error';
+              console.error('[ReviewSubmit] ❌ Submission failed:', msg);
+              console.error('[ReviewSubmit] 🔍 Error details:', e);
+              Alert.alert('Submit failed', msg);
+            } finally {
+              setIsSubmitting(false);
+              console.log('[ReviewSubmit] 🏁 Submission process completed');
+            }
           },
         },
       ],
     );
-  }, [navigation, inspectionId, submitInspection]);
+  }, [currentSession, navigation, inspectionId, submitInspection]);
 
   if (!currentSession || !currentLead) {
     return <Loader fullScreen message="Loading inspection..." />;
@@ -128,6 +173,8 @@ const ReviewSubmitScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const completedCount = currentSession.steps.filter((s) => s.isCompleted).length;
   const allComplete = completedCount === currentSession.steps.length;
+  // Allow submission even if not all sections are complete (partial submission enabled)
+  const canSubmit = true;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
@@ -186,8 +233,8 @@ const ReviewSubmitScreen: React.FC<Props> = ({ navigation, route }) => {
         {!allComplete && (
           <View style={styles.warningBanner}>
             <Text style={styles.warningText}>
-              ⚠️ {currentSession.steps.length - completedCount} section(s) are incomplete.
-              Please complete them before submitting.
+              ℹ️ {currentSession.steps.length - completedCount} section(s) are incomplete.
+              You can still submit with partial data.
             </Text>
           </View>
         )}
@@ -200,7 +247,7 @@ const ReviewSubmitScreen: React.FC<Props> = ({ navigation, route }) => {
           <AppButton
             label="Submit Inspection ✓"
             onPress={handleSubmit}
-            isDisabled={!allComplete}
+            isDisabled={false}
             testID="submit-inspection-btn"
           />
         )}

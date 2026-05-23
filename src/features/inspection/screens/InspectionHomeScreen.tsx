@@ -80,10 +80,16 @@ const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
   );
 
   const handleDone = useCallback(() => {
+    console.log('[InspectionHome] 📋 Navigating to Review & Submit screen');
+    console.log('[InspectionHome] 📊 Current session state:', {
+      completedSteps: currentSession?.steps.filter(s => s.isCompleted).length,
+      totalSteps: currentSession?.steps.length,
+      appointmentId: currentSession?.appointmentId,
+    });
     navigation.navigate('ReviewSubmit', {
       inspectionId: currentLead?.id ?? '',
     });
-  }, [navigation, currentLead]);
+  }, [navigation, currentLead, currentSession]);
 
   const renderStep = useCallback(
     ({ item, index }: { item: InspectionStep; index: number }) => (
@@ -132,13 +138,13 @@ const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
       <View style={styles.footer}>
         {!allComplete && (
           <Text style={styles.footerHint}>
-            ℹ️ You may proceed to review once all sections are completed.
+            ℹ️ You can proceed to review and submit with partial data.
           </Text>
         )}
         <AppButton
-          label={allComplete ? '✓ Review & Submit' : `Complete All Sections (${completedCount}/${currentSession.steps.length})`}
+          label={allComplete ? '✓ Review & Submit' : `Review & Submit (${completedCount}/${currentSession.steps.length} completed)`}
           onPress={handleDone}
-          isDisabled={!allComplete}
+          isDisabled={false}
           testID="done-btn"
         />
       </View>
