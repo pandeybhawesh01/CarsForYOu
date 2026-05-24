@@ -114,6 +114,8 @@ export interface NormalisedField {
 }
 
 export interface NormalisedCatalog {
+  /** Raw catalog sections from the API — used by DynamicInspectionStep */
+  sections: CatalogSection[];
   optionsByPath: CatalogOptionsMap;
   fieldsByPath: Record<string, NormalisedField>;
   vehicleSectionChildren: CatalogNode[];

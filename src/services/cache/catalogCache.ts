@@ -28,12 +28,13 @@ interface CacheEntry {
 /**
  * Validates that a cached catalog entry has the expected top-level shape.
  * Guards against stale cache entries written by older app versions that
- * may be missing sections added later (e.g. `vehicle`).
+ * may be missing sections added later (e.g. `vehicle`, `sections`).
  */
 function isValidCatalog(data: unknown): data is NormalisedCatalog {
   if (!data || typeof data !== 'object') return false;
   const d = data as Record<string, unknown>;
   return (
+    Array.isArray(d.sections) && // NEW: Check for sections array
     typeof d.optionsByPath === 'object' &&
     typeof d.airConditioning === 'object' &&
     typeof d.engineTransmission === 'object' &&

@@ -39,6 +39,7 @@ interface CatalogState {
  * They are used as fallbacks if the API hasn't loaded yet.
  */
 const FALLBACK_CATALOG: NormalisedCatalog = {
+  sections: [], // populated from API; empty fallback is fine — DynamicInspectionStep handles it
   optionsByPath: {},
   fieldsByPath: {},
   vehicleSectionChildren: [],

@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { InspectionStackScreenProps } from '../../../navigation/types';
 import { useInspectionStore } from '../store/inspectionStore';
+import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
 import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
 import StatusBadge from '../../../components/StatusBadge';
@@ -75,22 +76,38 @@ const sectionStyles = StyleSheet.create({
 
 const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
   const { currentLead, startInspection } = useInspectionStore();
+  const catalog = useCatalogViewModel(selectCatalog);
 
   const handleBack = useCallback(() => navigation.goBack(), [navigation]);
 
   const handleStartInspection = useCallback(async () => {
     if (!currentLead) return;
     
+    // Ensure catalog is loaded
+    if (!catalog.sections || catalog.sections.length === 0) {
+      console.error('[LeadDetails] ❌ Catalog not loaded! Cannot start inspection.');
+      // TODO: Show error alert to user
+      return;
+    }
+    
     console.log('[LeadDetails] 🚀 Start Inspection button clicked');
     
-    // Load draft and start inspection
-    await startInspection(currentLead);
+    // Pass catalog sections to create dynamic steps
+    const catalogSections = catalog.sections.map((sec) => ({
+      section: sec.section,
+      label: sec.label,
+    }));
+    
+    console.log('[LeadDetails] 📊 Creating inspection with', catalogSections.length, 'sections:', catalogSections.map(s => s.label).join(', '));
+    
+    // Load draft and start inspection with dynamic sections
+    await startInspection(currentLead, catalogSections);
     
     // Navigate to inspection home
     navigation.replace('InspectionHome', {
       inspectionId: currentLead.id,
     });
-  }, [navigation, currentLead, startInspection]);
+  }, [navigation, currentLead, startInspection, catalog.sections]);
 
   if (!currentLead) {
     return (

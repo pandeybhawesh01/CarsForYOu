@@ -156,6 +156,7 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
   const exteriorSectionChildren = extSection?.children ?? [];
 
   return {
+    sections: raw.data,
     optionsByPath: optionsMap,
     fieldsByPath: fieldsMap,
     vehicleSectionChildren,

@@ -28,12 +28,16 @@ import { typography } from '../../../constants/typography';
 import { spacing, verticalSpacing, borderRadius } from '../../../constants/spacing';
 import type { CatalogOption } from '../../../services/api/types';
 
+interface IssueObject {
+  type: string;
+  extent?: string | string[];
+}
+
 interface Props {
   label: string;
   options: CatalogOption[];
-  selected: string[];                                      // currently selected chip values
-  subValues: Record<string, string | string[]>;            // subOption values keyed by chip value
-  onChange: (selected: string[], subValues: Record<string, string | string[]>) => void;
+  selected: IssueObject[];                                 // issues as objects with type and optional extent
+  onChange: (issues: IssueObject[]) => void;
   isRequired?: boolean;
 }
 
@@ -49,13 +53,16 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
   label,
   options,
   selected,
-  subValues,
   onChange,
   isRequired = false,
 }) => {
   const [modal, setModal] = useState<ModalState | null>(null);
-  // Tracks in-progress multi-select picks inside the modal (not yet confirmed)
   const [pendingMulti, setPendingMulti] = useState<string[]>([]);
+
+  const getCurrentExtent = useCallback((issueType: string): string | string[] => {
+    const issue = selected.find(i => i.type === issueType);
+    return issue?.extent ?? '';
+  }, [selected]);
 
   const openModal = useCallback((opt: CatalogOption, currentSub: string | string[]) => {
     const subOpts = opt.subOptions1 ?? [];
@@ -77,32 +84,29 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
     const subOpts = opt.subOptions1 ?? [];
     const optInputType = (opt as unknown as Record<string, string>).inputType;
     const hasModalSub = subOpts.length > 0 && (optInputType === 'select' || optInputType === 'multi-select');
+    const isSelected = selected.some(i => i.type === val);
 
-    if (selected.includes(val)) {
-      // Deselect: remove chip + clear its subValue
-      const newSelected = selected.filter(v => v !== val);
-      const newSubValues = { ...subValues };
-      delete newSubValues[val];
-      onChange(newSelected, newSubValues);
+    if (isSelected) {
+      // Deselect: remove issue object
+      const newIssues = selected.filter(i => i.type !== val);
+      onChange(newIssues);
     } else if (hasModalSub) {
       // Open modal — chip will be confirmed after selection
-      openModal(opt, subValues[val] ?? (optInputType === 'multi-select' ? [] : ''));
+      const currentExtent = getCurrentExtent(val);
+      openModal(opt, currentExtent || (optInputType === 'multi-select' ? [] : ''));
     } else {
-      // Plain chip — toggle on immediately
-      onChange([...selected, val], subValues);
+      // Plain chip — toggle on immediately (no extent)
+      onChange([...selected, { type: val }]);
     }
-  }, [selected, subValues, onChange, openModal]);
+  }, [selected, onChange, openModal, getCurrentExtent]);
 
-  // Single-select: pick immediately and close
   const handleSingleSelect = useCallback((value: string) => {
     if (!modal) return;
-    const newSelected = selected.includes(modal.chipValue)
-      ? selected
-      : [...selected, modal.chipValue];
-    const newSubValues = { ...subValues, [modal.chipValue]: value };
-    onChange(newSelected, newSubValues);
+    const newIssues = selected.filter(i => i.type !== modal.chipValue);
+    newIssues.push({ type: modal.chipValue, extent: value });
+    onChange(newIssues);
     setModal(null);
-  }, [modal, selected, subValues, onChange]);
+  }, [modal, selected, onChange]);
 
   // Multi-select: toggle pending
   const handleMultiToggle = useCallback((value: string) => {
@@ -111,16 +115,17 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
     );
   }, []);
 
-  // Multi-select: confirm Done
   const handleMultiDone = useCallback(() => {
     if (!modal) return;
-    const newSelected = selected.includes(modal.chipValue)
-      ? selected
-      : [...selected, modal.chipValue];
-    const newSubValues = { ...subValues, [modal.chipValue]: pendingMulti };
-    onChange(newSelected, newSubValues);
+    const newIssues = selected.filter(i => i.type !== modal.chipValue);
+    if (pendingMulti.length > 0) {
+      newIssues.push({ type: modal.chipValue, extent: pendingMulti });
+    } else {
+      newIssues.push({ type: modal.chipValue });
+    }
+    onChange(newIssues);
     setModal(null);
-  }, [modal, selected, subValues, pendingMulti, onChange]);
+  }, [modal, selected, pendingMulti, onChange]);
 
   const handleCloseModal = useCallback(() => setModal(null), []);
 
@@ -136,7 +141,7 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
       <View style={styles.chipsWrap}>
         {options.map((opt) => {
           const val = String(opt.value);
-          const isOn = selected.includes(val);
+          const isOn = selected.some(i => i.type === val);
           return (
             <TouchableOpacity
               key={val}
@@ -160,7 +165,7 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
           const subOpts = opt.subOptions1 ?? [];
           const optInputType = (opt as unknown as Record<string, string>).inputType;
           return (
-            selected.includes(val) &&
+            selected.some(i => i.type === val) &&
             subOpts.length > 0 &&
             (optInputType === 'select' || optInputType === 'multi-select')
           );
@@ -169,15 +174,16 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
           const val = String(opt.value);
           const subOpts = opt.subOptions1 ?? [];
           const optInputType = ((opt as unknown as Record<string, string>).inputType ?? 'select') as 'select' | 'multi-select';
-          const currentSub = subValues[val] ?? (optInputType === 'multi-select' ? [] : '');
+          const issue = selected.find(i => i.type === val);
+          const currentExtent = issue?.extent ?? (optInputType === 'multi-select' ? [] : '');
 
           const subLabel = (() => {
             if (optInputType === 'multi-select') {
-              const vals = Array.isArray(currentSub) ? currentSub : [];
+              const vals = Array.isArray(currentExtent) ? currentExtent : [];
               if (vals.length === 0) return 'Tap to change';
               return `✓ ${vals.map(v => subOpts.find(s => String(s.value) === v)?.label).filter(Boolean).join(', ')}`;
             }
-            const found = subOpts.find(s => String(s.value) === currentSub);
+            const found = subOpts.find(s => String(s.value) === currentExtent);
             return found ? `✓ ${found.label}` : 'Tap to change';
           })();
 
@@ -185,7 +191,7 @@ const MultiSelectWithSubOptions: React.FC<Props> = ({
             <TouchableOpacity
               key={`${val}-card`}
               style={styles.card}
-              onPress={() => openModal(opt, currentSub)}
+              onPress={() => openModal(opt, currentExtent)}
               activeOpacity={0.75}
             >
               <View style={styles.cardIconWrap}>
