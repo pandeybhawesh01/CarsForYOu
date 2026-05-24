@@ -14,7 +14,7 @@ const DEV_API_BASE_URL =
     : 'http://localhost:3000/api/v1';
 
 // FORCE LOCAL DEV SERVER - Use computer's IP for physical device
-export const API_BASE_URL = 'http://192.168.1.37:3002/api/v1';
+export const API_BASE_URL = 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
 
 // Uncomment below to use local dev server instead:
 // export const API_BASE_URL = __DEV__

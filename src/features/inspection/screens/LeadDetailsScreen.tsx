@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { InspectionStackScreenProps } from '../../../navigation/types';
@@ -81,15 +82,27 @@ const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
   const handleBack = useCallback(() => navigation.goBack(), [navigation]);
 
   const handleStartInspection = useCallback(async () => {
-    if (!currentLead) return;
+    console.log('[LeadDetails] 🎯 handleStartInspection called');
+    
+    if (!currentLead) {
+      console.log('[LeadDetails] ❌ No current lead');
+      return;
+    }
+    
+    console.log('[LeadDetails] ✅ Current lead exists:', currentLead.appointmentId);
     
     // Ensure catalog is loaded
     if (!catalog.sections || catalog.sections.length === 0) {
       console.error('[LeadDetails] ❌ Catalog not loaded! Cannot start inspection.');
-      // TODO: Show error alert to user
+      Alert.alert(
+        'Catalog Not Loaded',
+        'Please wait for the inspection form to load and try again.',
+        [{ text: 'OK' }]
+      );
       return;
     }
     
+    console.log('[LeadDetails] ✅ Catalog loaded with', catalog.sections.length, 'sections');
     console.log('[LeadDetails] 🚀 Start Inspection button clicked');
     
     // Pass catalog sections to create dynamic steps
@@ -100,13 +113,29 @@ const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
     
     console.log('[LeadDetails] 📊 Creating inspection with', catalogSections.length, 'sections:', catalogSections.map(s => s.label).join(', '));
     
-    // Load draft and start inspection with dynamic sections
-    await startInspection(currentLead, catalogSections);
-    
-    // Navigate to inspection home
-    navigation.replace('InspectionHome', {
-      inspectionId: currentLead.id,
-    });
+    try {
+      console.log('[LeadDetails] 🔄 Calling startInspection...');
+      // Load draft and start inspection with dynamic sections
+      await startInspection(currentLead, catalogSections);
+      
+      console.log('[LeadDetails] ✅ startInspection completed successfully');
+      console.log('[LeadDetails] 🧭 About to navigate to InspectionHome with inspectionId:', currentLead.id);
+      
+      // Navigate to inspection home
+      navigation.replace('InspectionHome', {
+        inspectionId: currentLead.id,
+      });
+      
+      console.log('[LeadDetails] ✅ Navigation.replace called');
+    } catch (error) {
+      console.error('[LeadDetails] ❌ Failed to start inspection:', error);
+      console.log('[LeadDetails] 🧭 Navigating anyway to InspectionHome');
+      // Navigation still happens even if draft loading fails
+      navigation.replace('InspectionHome', {
+        inspectionId: currentLead.id,
+      });
+      console.log('[LeadDetails] ✅ Navigation.replace called (error path)');
+    }
   }, [navigation, currentLead, startInspection, catalog.sections]);
 
   if (!currentLead) {

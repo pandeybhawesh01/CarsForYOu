@@ -31,13 +31,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
    * This ensures session persistence across app restarts
    */
   useEffect(() => {
+    // Safety timeout: if Firebase doesn't respond in 5 seconds, show login screen anyway
+    const timeout = setTimeout(() => {
+      console.warn('[AuthContext] Firebase auth initialization timeout - showing login screen');
+      setLoading(false);
+    }, 5000);
+
     const unsubscribe = firebaseAuthService.onAuthStateChanged((authUser) => {
+      clearTimeout(timeout); // Cancel timeout if Firebase responds
       setUser(authUser);
       setLoading(false);
     });
 
     // Cleanup subscription on unmount
-    return unsubscribe;
+    return () => {
+      clearTimeout(timeout);
+      unsubscribe();
+    };
   }, []);
 
   /**
