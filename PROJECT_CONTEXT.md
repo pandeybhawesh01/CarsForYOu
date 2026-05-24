@@ -67,178 +67,242 @@ Each catalog node contains:
 | 5 | `Step5_ElectricalsInteriors.tsx` | `electricalInteriors` | `Documents` |
 | 6 | `Step6_Media.tsx` | `exterior` | `Media` |
 
-### Data Storage
+### Adding a new section
 
-- Form data is stored in `InspectionStore` via `updateFormData(stepId, { [path]: value })`.
-- Photo details are stored in `media.documentPhotoDetails` keyed by slot path such as `carImages.frontMain`.
-- Direct captures are stored as `{ photos: [uri], status: 'good' }`.
+1. Add `{sectionKey}SectionChildren: CatalogNode[]` to `NormalisedCatalog` in `types.ts`
+2. Extract it in `catalogService.ts` `normalise()` function
+3. Add `{sectionKey}SectionChildren: []` to `FALLBACK_CATALOG` in `catalogViewModel.ts`
+4. Use `catalog.{sectionKey}SectionChildren` as `sectionNodes` in the step screen
 
-## Media Capture Implementation
+### Catalog service location
+`Cars24/src/services/api/catalogService.ts`
 
-The app uses `react-native-vision-camera` v4 for real device photo and video capture.
+### ViewModel location
+`Cars24/src/viewmodels/catalogViewModel.ts`
 
-### Component Stack
+### Shared rendering helpers
+The following pure functions are duplicated across step screens (Step1, Step2, Step3, Step4).
+They are intentionally kept local to each screen to avoid cross-screen coupling:
+- `renderNodes(nodes, handlers, depth)` — recursive node renderer
+- `renderSingleNode(node, handlers, keyPrefix, depth)` — single node dispatcher
+- `renderInput(input, nodePath, nodeLabel, issueOptions, handlers)` — input type dispatcher
+- `mergeByKey(nodes)` — merges same-key siblings
+- `collectIssueOptions(children)` — extracts multi-select options from children for photo panels
+- `getInputs(node)` — extracts inputs array (handles both new and legacy schema)
+- `getChildren(node)` — extracts children array
 
-Inspection step -> `PhotoCapture` / `VideoCapture` -> `CameraModal` -> `CameraPreview` -> `CameraControls` -> `CameraService` -> `PermissionService`
+### Navigation
+- Login screen is bypassed for debugging — `RootNavigator` starts at `MainTabs`
+- To re-enable login: add `<Stack.Screen name="Login" component={LoginScreen} />` and set `initialRouteName="Login"`
 
-### PhotoCapture
+### Data storage
+- Form data stored in `InspectionStore` via `updateFormData(stepId, { [path]: value })`
+- Photo details stored in `media.documentPhotoDetails` keyed by slot path (e.g. `carImages.frontMain`)
+- Direct captures (field file-upload) stored as `{ photos: [uri], status: 'good' }`
 
-- File: `src/features/inspection/components/PhotoCapture.tsx`
-- Handles photo capture UI and thumbnail preview.
-- Props: `label`, `imageUri`, `onCapture`, `isRequired`, `hint`.
+---
 
-### VideoCapture
+## Firebase Authentication & Google Sign-In
 
-- File: `src/features/inspection/components/VideoCapture.tsx`
-- Handles video recording UI and preview flow.
-- Props: `label`, `videoUri`, `onCapture`, `isRequired`, `hint`.
-- After recording, the UI shows a thumbnail preview, a Preview action, and a Re-record action.
-- The full-screen preview includes play and pause controls plus Keep Video and Re-record buttons.
+### Overview
+Production-ready Google Sign-In with Firebase Authentication, session persistence, and TypeScript support.
 
-### CameraModal
+### Configuration Status ✅
 
-- File: `src/features/camera/components/CameraModal.tsx`
-- Full-screen camera UI for both photo and video modes.
-- Manages permissions, initialization, recording, and errors.
+#### Android Build Configuration
+- **Kotlin Version:** 2.0.21 (compatible with Firebase Auth)
+- **Kotlin Metadata Fix:** Added `-Xskip-metadata-version-check` flag
+- **Files Modified:** 
+  - `android/build.gradle` — updated `kotlinVersion`
+  - `android/app/build.gradle` — added Kotlin compiler configuration
 
-### CameraPreview
+#### Firebase Setup
+- Firebase Project Created
+- Android App Added with google-services.json
+- Firebase Auth Enabled
+- Google Sign-In Provider Enabled
+- SHA1 & SHA256 Fingerprints Added to Firebase Console
+- Web Client ID: `1082830632125-8hdstm7u2jcvgfato0itn34su78l1fb0.apps.googleusercontent.com`
 
-- File: `src/features/camera/components/CameraPreview.tsx`
-- Wraps the Vision Camera component.
-- Must enable the right capabilities for the mode.
+#### Packages Installed
+```json
+{
+  "@react-native-firebase/app": "^24.0.0",
+  "@react-native-firebase/auth": "^24.0.0",
+  "@react-native-google-signin/google-signin": "^13.2.0"
+}
+```
 
-Required flags:
+### Architecture
+
+#### File Structure
+```
+src/
+├── services/auth/
+│   ├── index.ts                    # Exports
+│   ├── types.ts                    # TypeScript interfaces
+│   └── firebaseAuthService.ts      # Core auth logic
+├── context/
+│   └── AuthContext.tsx             # Auth context provider
+├── features/auth/screens/
+│   └── LoginScreen.tsx             # Google Sign-In UI
+└── navigation/
+    ├── RootNavigator.tsx           # Protected navigation logic
+    └── MainTabNavigator.tsx        # Dashboard + Profile tabs
+```
+
+#### Core Components
+
+**firebaseAuthService** (`src/services/auth/firebaseAuthService.ts`)
+- `configureGoogleSignIn()` — Configures Google Sign-In with Web Client ID, offline access, and refresh token
+- `loginWithGoogle()` — Signs in via Google, exchanges ID token for Firebase credential
+- `logout()` — Signs out from Google and Firebase
+- `getCurrentUser()` — Returns current AuthUser or null
+- `onAuthStateChanged(callback)` — Listens to auth state changes for session persistence
+
+**AuthContext** (`src/context/AuthContext.tsx`)
+- Provides: `user`, `loading`, `error`, `login()`, `logout()`, `clearError()`
+- Registers Firebase auth state listener on mount
+- Handles session persistence via `onAuthStateChanged`
+- Manages error states and loading indicators
+
+**RootNavigator** (`src/navigation/RootNavigator.tsx`)
+- Protected navigation: shows LoginScreen if no user, MainTabs if authenticated
+- Shows loading indicator during auth state check
+- Prevents flickering between screens
+
+**LoginScreen** (`src/features/auth/screens/LoginScreen.tsx`)
+- Google Sign-In button with loading state
+- Error message display
+- Professional UI with logo, welcome message, terms
+
+**Dashboard & Profile** (`src/navigation/MainTabNavigator.tsx`)
+- Dashboard: displays user greeting and name from Firebase
+- Profile: shows user details (email, ID, status), includes Sign Out button
+- Both include logout with confirmation dialog
+
+### Sign-In Flow
+
+1. App mounts → `AuthProvider` sets up Firebase listener
+2. `onAuthStateChanged` checks for existing session
+3. If no session → `RootNavigator` shows `LoginScreen`
+4. User taps "Continue with Google"
+5. Google account selector appears
+6. On success → Google returns idToken
+7. Firebase credential created from idToken
+8. Firebase signs in user
+9. AuthContext updates with user data
+10. RootNavigator automatically shows MainTabs
+11. Session persists on app restart via Firebase stored token
+
+### Session Persistence
+
+- Firebase SDK stores auth token securely on device
+- `onAuthStateChanged` listener checks token on app startup
+- If valid → user automatically signed in
+- If invalid/expired → user sent to LoginScreen
+- No manual token handling required
+
+### Sign-Out Flow
+
+1. User taps "Sign Out" on Dashboard or Profile
+2. Confirmation dialog appears
+3. `logout()` called
+   - Calls `GoogleSignin.signOut()` — clears Google session
+   - Calls `auth().signOut()` — clears Firebase session
+4. AuthContext sets user to null
+5. RootNavigator shows LoginScreen
+6. Session cleared
+
+### Error Handling
+
+**Handled Errors:**
+- `SIGN_IN_CANCELLED` — user cancelled Google sign-in
+- `IN_PROGRESS` — sign-in already in progress
+- `PLAY_SERVICES_NOT_AVAILABLE` — Google Play Services not available
+- Network errors → descriptive error messages
+- Firebase auth failures → error alerts
+
+**UX Feedback:**
+- Loading indicators during async operations
+- Error messages displayed on LoginScreen
+- Alert dialogs for errors
+- Try-catch blocks in all async methods
+
+### TypeScript Types
+
+**AuthUser** — User data after authentication
+```typescript
+interface AuthUser {
+  uid: string;           // Firebase unique ID
+  email: string | null;  // Google account email
+  displayName: string | null;  // Google account name
+  photoURL: string | null;     // Google profile picture
+}
+```
+
+**AuthContextValue** — Context API shape
+```typescript
+interface AuthContextValue {
+  user: AuthUser | null;
+  loading: boolean;
+  error: string | null;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  clearError: () => void;
+}
+```
+
+### Usage Example
 
 ```typescript
-<Camera
-  photo={mode === 'photo' || mode === 'video'}
-  video={mode === 'video'}
-  audio={mode === 'video'}
-/>
+// In any component
+import { useAuth } from '../context/AuthContext';
+
+function MyComponent() {
+  const { user, loading, error, login, logout } = useAuth();
+
+  // Access user data
+  console.log(user?.displayName);
+  console.log(user?.email);
+
+  // Sign in
+  const handleSignIn = async () => {
+    try {
+      await login();
+      // Navigation happens automatically
+    } catch (err) {
+      console.error('Login failed:', err.message);
+    }
+  };
+
+  // Sign out
+  const handleSignOut = async () => {
+    try {
+      await logout();
+      // User sent to LoginScreen automatically
+    } catch (err) {
+      console.error('Logout failed:', err.message);
+    }
+  };
+
+  if (loading) return <LoadingIndicator />;
+
+  return (
+    <>
+      {error && <ErrorMessage message={error} />}
+      <Text>Welcome, {user?.displayName}</Text>
+      <Button title="Sign Out" onPress={handleSignOut} />
+    </>
+  );
+}
 ```
 
-### CameraService
+### Important Notes
 
-- File: `src/features/camera/services/CameraService.ts`
-- `capturePhoto(camera, options)` captures photos.
-- `startRecording(camera, onFinished, onError)` starts video recording.
-- `stopRecording(camera)` stops the current recording.
-
-### PermissionService
-
-- File: `src/features/camera/services/PermissionService.ts`
-- Handles camera and microphone permission requests.
-
-### Dependencies
-
-- `react-native-vision-camera`: `^4.6.0`
-- `react-native-video`: `^6.7.3`
-
-### Android Permissions
-
-```xml
-<uses-permission android:name="android.permission.CAMERA" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-```
-
-## Photo Capture Fix
-
-The photo capture bug was caused by the camera being initialized without the required capability flags.
-
-### Root Cause
-
-- `photo={true}` was missing for photo capture.
-- `video={true}` and `audio={true}` were missing for video recording.
-
-### Fix
-
-- `CameraPreview` now accepts a `mode` prop.
-- In photo mode, it enables `photo={true}`.
-- In video mode, it enables `photo={true}`, `video={true}`, and `audio={true}`.
-- `CameraModal` passes the mode through to `CameraPreview`.
-
-### Result
-
-- Photo capture works again.
-- Video recording initializes correctly on real devices.
-
-## Video Preview Implementation
-
-The video capture flow now lets users review what they recorded before keeping it.
-
-### Behavior
-
-- After recording, the component shows a video thumbnail of the first frame.
-- The user can open a full-screen preview.
-- The preview includes play and pause controls.
-- The user can keep the clip or re-record it.
-
-### User Flow
-
-1. Tap `Tap to record`.
-2. Record a video.
-3. Review the thumbnail preview.
-4. Open Preview to watch the full clip.
-5. Choose Keep Video or Re-record.
-
-## Inspection Step Usage
-
-All six inspection steps use `PhotoCapture` and `VideoCapture` when the catalog returns `file-upload` inputs.
-
-- If the label contains `image`, render `PhotoCapture`.
-- If the label contains `video`, render `VideoCapture`.
-- This works across Basic Verification, Air Conditioning, Interior, Engine, Electricals and Interiors, and Media.
-
-## Testing and Validation
-
-### Photo and Video Checks
-
-- Verify photo capture on a real device.
-- Verify video recording on a real device.
-- Confirm the video thumbnail appears after recording.
-- Confirm preview playback works.
-- Confirm re-record replaces the previous media.
-- Confirm permission prompts appear when access is missing.
-
-### Rebuild After Camera Changes
-
-```bash
-cd android
-./gradlew clean
-cd ..
-npm run android
-```
-
-### Useful Diagnostics
-
-```bash
-npx tsc --noEmit
-npm run lint
-```
-
-## Important Notes
-
-- Use a physical device for camera testing.
-- Emulator camera support is limited.
-- Camera features require permissions and free storage.
-- Video files are saved to device cache as MP4 using H.264.
-- Photos are saved to device cache as JPEG.
-
-## File Locations
-
-- Catalog service: `src/services/api/catalogService.ts`
-- Catalog view model: `src/viewmodels/catalogViewModel.ts`
-- Photo capture component: `src/features/inspection/components/PhotoCapture.tsx`
-- Video capture component: `src/features/inspection/components/VideoCapture.tsx`
-- Camera modal: `src/features/camera/components/CameraModal.tsx`
-- Camera preview: `src/features/camera/components/CameraPreview.tsx`
-- Camera service: `src/features/camera/services/CameraService.ts`
-- Permission service: `src/features/camera/services/PermissionService.ts`
-
-## Legacy Notes Kept From Deleted Docs
-
-- Top-level navigation starts at `MainTabs` during debugging.
-- Shared rendering helpers remain local to each step screen to avoid cross-screen coupling.
-- The Android build fixes removed incompatible nitro modules and adjusted Vision Camera Kotlin compatibility.
-- `VIDEO_CAPTURE_SUMMARY.txt` remains as a non-markdown reference file.
+1. **Web Client ID Required** — Must be from Firebase Console, not Android Client ID
+2. **google-services.json Required** — Must be in `android/app/` directory
+3. **SHA Fingerprints Required** — Must match Firebase Console configuration
+4. **Google Play Services** — Device must have Google Play Services installed
+5. **Session Auto-Persists** — Users stay logged in across app restarts by default
+6. **Kotlin Compatibility** — Kotlin 2.0.21+ required for Firebase Auth compatibility

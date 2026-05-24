@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { MainTabScreenProps } from '../../../navigation/types';
@@ -15,6 +16,7 @@ import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { mockInspections, mockUser } from '../../../services/mockData';
 import InspectionCard from '../../../components/InspectionCard';
 import EmptyState from '../../../components/EmptyState';
+import { useAuth } from '../../../context/AuthContext';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
@@ -34,7 +36,29 @@ const FILTER_TABS: { label: string; value: FilterTab }[] = [
 const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('ALL');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { setCurrentLead } = useInspectionStore();
+  const { startInspection } = useInspectionStore();
+  const { user, logout } = useAuth();
+
+  const handleLogout = useCallback(() => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logout();
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to sign out');
+            }
+          },
+        },
+      ]
+    );
+  }, [logout]);
 
   const filteredLeads = useMemo(() => {
     if (activeFilter === 'ALL') return mockInspections;
@@ -128,15 +152,23 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerLeft}>
           <Text style={styles.greeting}>Good Morning 👋</Text>
-          <Text style={styles.name}>{mockUser.name}</Text>
+          <Text style={styles.name}>{user?.displayName || mockUser.name}</Text>
           <Text style={styles.zone}>📍 {mockUser.zone} • {mockUser.employeeId}</Text>
         </View>
-        <View style={styles.avatarContainer}>
-          <Text style={styles.avatarText}>
-            {mockUser.name.charAt(0)}
-          </Text>
+        <View style={styles.headerRight}>
+          <View style={styles.avatarContainer}>
+            <Text style={styles.avatarText}>
+              {(user?.displayName || mockUser.name).charAt(0)}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            activeOpacity={0.7}>
+            <Text style={styles.logoutText}>Sign Out</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -183,6 +215,13 @@ const styles = StyleSheet.create({
     paddingTop: vs(16),
     paddingBottom: vs(20),
   },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    alignItems: 'center',
+    gap: vs(8),
+  },
   greeting: {
     fontSize: typography.fontSize.sm,
     color: colors.onPrimaryMuted,
@@ -209,6 +248,19 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
+    color: colors.white,
+  },
+  logoutButton: {
+    paddingHorizontal: hs(12),
+    paddingVertical: vs(6),
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.onPrimarySurfaceLow,
+    borderWidth: 1,
+    borderColor: colors.onPrimarySurfaceMedium,
+  },
+  logoutText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
     color: colors.white,
   },
   statsRow: {
