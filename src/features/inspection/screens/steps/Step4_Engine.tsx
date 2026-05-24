@@ -44,6 +44,7 @@ import type {
   CatalogInput,
   CatalogOption,
 } from '../../../../services/api/types';
+import { getByPath, stripSectionPrefix } from '../../utils/nestedFormData';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
   }
 
   if (input.inputType === 'multi-select') {
-    const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
+    const current = (getByPath(handlers.formData, stripSectionPrefix(nodePath)) as Array<{type: string; extent?: string | string[]}> | string[] | undefined) ?? [];
 
     // Check if any option has modal-type subOptions (inputType: "select")
     const hasModalSubOptions = input.options.some(opt => {
@@ -259,40 +260,22 @@ function renderInput(input: CatalogInput, nodePath: string, nodeLabel: string, i
     });
 
     if (hasModalSubOptions) {
-      const subValues: Record<string, string | string[]> = {};
-      input.options.forEach(opt => {
-        const val = String(opt.value);
-        const optInputType = (opt as unknown as Record<string, string>).inputType;
-        const subPath = `${nodePath}.${val}`;
-        if (optInputType === 'multi-select') {
-          subValues[val] = (handlers.formData[subPath] as string[] | undefined) ?? [];
-        } else {
-          subValues[val] = String((handlers.formData[subPath] as string | undefined) ?? '');
-        }
-      });
+      // Convert to nested format if it's still flat (for backward compatibility)
+      const issuesArray: Array<{type: string; extent?: string | string[]}> = Array.isArray(current) && current.length > 0
+        ? (typeof current[0] === 'string' 
+            ? current.map(type => ({ type: String(type) })) 
+            : current as Array<{type: string; extent?: string | string[]}>)
+        : [];
 
       return (
         <MultiSelectWithSubOptions
           key={nodePath}
           label={label}
           options={input.options}
-          selected={current}
-          subValues={subValues}
-          onChange={(newSelected, newSubValues) => {
-            handlers.onMultiSelectChange(nodePath, newSelected);
-            input.options.forEach(opt => {
-              const val = String(opt.value);
-              const optInputType = (opt as unknown as Record<string, string>).inputType;
-              const subPath = `${nodePath}.${val}`;
-              const subVal = newSubValues[val];
-              if (subVal !== undefined) {
-                if (optInputType === 'multi-select') {
-                  handlers.onMultiSelectChange(subPath, Array.isArray(subVal) ? subVal : []);
-                } else {
-                  handlers.onSelectChange(subPath, Array.isArray(subVal) ? (subVal[0] ?? '') : subVal);
-                }
-              }
-            });
+          selected={issuesArray}
+          onChange={(newIssues) => {
+            // Store directly as nested objects
+            handlers.onMultiSelectChange(nodePath, newIssues as unknown as string[]);
           }}
         />
       );
@@ -605,8 +588,8 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
   const loadingState = useCatalogViewModel((s) => s.loadingState);
   const loadCatalog = useCatalogViewModel((s) => s.loadCatalog);
 
-  const formData = (currentSession?.formData.engine ?? {}) as Record<string, unknown>;
-  const photoDetails = (currentSession?.formData.media?.documentPhotoDetails ?? {}) as Record<string, PhotoIssueInspectionBlock>;
+  const formData = (currentSession?.formData.engineTransmission ?? {}) as Record<string, unknown>;
+  const photoDetails = (currentSession?.formData.exterior?.documentPhotoDetails ?? {}) as Record<string, PhotoIssueInspectionBlock>;
 
   const sectionNodes = catalog.engineTransmissionSectionChildren;
 
@@ -621,9 +604,9 @@ const Step4Engine: React.FC<Props> = ({ onNext, onBack }) => {
   
   const [activeSubOptionsModal, setActiveSubOptionsModal] = useState<ActiveSubOptionsModal | null>(null);
 
-  const handleTextChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Engine, { [path]: value }), [updateFormData]);
-  const handleSelectChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Engine, { [path]: value }), [updateFormData]);
-  const handleMultiSelectChange = useCallback((path: string, values: string[]) => updateFormData(InspectionStepId.Engine, { [path]: values }), [updateFormData]);
+  const handleTextChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Engine, { [stripSectionPrefix(path)]: value }), [updateFormData]);
+  const handleSelectChange = useCallback((path: string, value: string) => updateFormData(InspectionStepId.Engine, { [stripSectionPrefix(path)]: value }), [updateFormData]);
+  const handleMultiSelectChange = useCallback((path: string, values: string[]) => updateFormData(InspectionStepId.Engine, { [stripSectionPrefix(path)]: values }), [updateFormData]);
   const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
   const handleCloseModal = useCallback(() => setActiveSlot(null), []);
   const handleGroupPress = useCallback((group: ActiveGroupNode) => setActiveGroupNode(group), []);

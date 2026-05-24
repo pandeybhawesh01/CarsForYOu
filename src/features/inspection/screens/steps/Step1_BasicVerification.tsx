@@ -45,8 +45,7 @@ import type {
   CatalogInput,
   CatalogOption,
 } from '../../../../services/api/types';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { getByPath, stripSectionPrefix } from '../../utils/nestedFormData';
 
 interface ActivePhotoSlot {
   storageKey: string;
@@ -81,6 +80,49 @@ function cleanLabel(raw: string): string {
     .split(' ')
     .map(capitalise)
     .join(' ');
+}
+
+/**
+ * Convert dotted path to nested object
+ * Example: setNestedValue({}, "engine.issues", [{type: "Rust"}])
+ * Returns: { engine: { issues: [{type: "Rust"}] } }
+ */
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): Record<string, unknown> {
+  const keys = path.split('.');
+  const result = { ...obj };
+  let current: any = result;
+  
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!current[key] || typeof current[key] !== 'object' || Array.isArray(current[key])) {
+      current[key] = {};
+    } else {
+      current[key] = { ...current[key] };
+    }
+    current = current[key];
+  }
+  
+  current[keys[keys.length - 1]] = value;
+  return result;
+}
+
+/**
+ * Get value from nested object using dotted path
+ * Example: getNestedValue({ engine: { issues: [...] } }, "engine.issues")
+ * Returns: [...]
+ */
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const keys = path.split('.');
+  let current: any = obj;
+  
+  for (const key of keys) {
+    if (current === null || current === undefined || typeof current !== 'object') {
+      return undefined;
+    }
+    current = current[key];
+  }
+  
+  return current;
 }
 
 function isGroup(node: CatalogNode): node is CatalogGroup {
@@ -436,7 +478,7 @@ function renderInput(
   }
 
   if (input.inputType === 'multi-select') {
-    const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
+    const current = (getByPath(handlers.formData, stripSectionPrefix(nodePath)) as Array<{type: string; extent?: string | string[]}> | string[] | undefined) ?? [];
 
     // Check if any option has modal-type subOptions (inputType: "select")
     const hasModalSubOptions = input.options.some(opt => {
@@ -446,40 +488,22 @@ function renderInput(
     });
 
     if (hasModalSubOptions) {
-      const subValues: Record<string, string | string[]> = {};
-      input.options.forEach(opt => {
-        const val = String(opt.value);
-        const optInputType = (opt as unknown as Record<string, string>).inputType;
-        const subPath = `${nodePath}.${val}`;
-        if (optInputType === 'multi-select') {
-          subValues[val] = (handlers.formData[subPath] as string[] | undefined) ?? [];
-        } else {
-          subValues[val] = String((handlers.formData[subPath] as string | undefined) ?? '');
-        }
-      });
+      // Convert to nested format if it's still flat (for backward compatibility)
+      const issuesArray: Array<{type: string; extent?: string | string[]}> = Array.isArray(current) && current.length > 0
+        ? (typeof current[0] === 'string' 
+            ? current.map(type => ({ type: String(type) })) 
+            : current as Array<{type: string; extent?: string | string[]}>)
+        : [];
 
       return (
         <MultiSelectWithSubOptions
           key={nodePath}
           label={label}
           options={input.options}
-          selected={current}
-          subValues={subValues}
-          onChange={(newSelected, newSubValues) => {
-            handlers.onMultiSelectChange(nodePath, newSelected);
-            input.options.forEach(opt => {
-              const val = String(opt.value);
-              const optInputType = (opt as unknown as Record<string, string>).inputType;
-              const subPath = `${nodePath}.${val}`;
-              const subVal = newSubValues[val];
-              if (subVal !== undefined) {
-                if (optInputType === 'multi-select') {
-                  handlers.onMultiSelectChange(subPath, Array.isArray(subVal) ? subVal : []);
-                } else {
-                  handlers.onSelectChange(subPath, Array.isArray(subVal) ? (subVal[0] ?? '') : subVal);
-                }
-              }
-            });
+          selected={issuesArray}
+          onChange={(newIssues) => {
+            // Store directly as nested objects
+            handlers.onMultiSelectChange(nodePath, newIssues as unknown as string[]);
           }}
         />
       );
@@ -511,7 +535,7 @@ function renderInput(
                 dataType: 'STRING' as const,
                 subOptions1: [],
               }));
-              const currentSub = (handlers.formData[subPath] as string[] | undefined) ?? [];
+              const currentSub = (getByPath(handlers.formData, stripSectionPrefix(subPath)) as string[] | undefined) ?? [];
               return (
                 <MultiSelectChips
                   key={`${nodePath}-${idx}-sub-${sIdx}`}
@@ -530,7 +554,7 @@ function renderInput(
   }
 
   if (input.inputType === 'select') {
-    const current = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    const current = String((getByPath(handlers.formData, stripSectionPrefix(nodePath)) as string | undefined) ?? '');
     const selectedOpt = input.options.find((o) => String(o.value) === current);
     const subOpts = selectedOpt?.subOptions1 ?? [];
     return (
@@ -577,7 +601,7 @@ function renderInput(
               dataType: 'STRING' as const,
               subOptions1: [],
             }));
-            const currentSub = (handlers.formData[subPath] as string[] | undefined) ?? [];
+            const currentSub = (getByPath(handlers.formData, stripSectionPrefix(subPath)) as string[] | undefined) ?? [];
             return (
               <MultiSelectChips
                 key={`${nodePath}-sub-${sIdx}`}
@@ -599,7 +623,7 @@ function renderInput(
       return input.options.map((opt) => {
         const fp = `${nodePath}.${String(opt.value)}`;
         const fl = cleanLabel(opt.label);
-        const cur = String((handlers.formData[fp] as string | undefined) ?? '');
+        const cur = String((getByPath(handlers.formData, stripSectionPrefix(fp)) as string | undefined) ?? '');
         return (
           <AppInput
             key={fp}
@@ -612,7 +636,7 @@ function renderInput(
         );
       });
     }
-    const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+    const cur = String((getByPath(handlers.formData, stripSectionPrefix(nodePath)) as string | undefined) ?? '');
     return (
       <AppInput
         key={nodePath}
@@ -630,7 +654,7 @@ function renderInput(
     return input.options.map((opt) => {
       const fp = `${nodePath}.${String(opt.value)}`;
       const fl = cleanLabel(opt.label);
-      const cur = String((handlers.formData[fp] as string | undefined) ?? '');
+      const cur = String((getByPath(handlers.formData, stripSectionPrefix(fp)) as string | undefined) ?? '');
       return (
         <AppInput
           key={fp}
@@ -642,7 +666,7 @@ function renderInput(
       );
     });
   }
-  const cur = String((handlers.formData[nodePath] as string | undefined) ?? '');
+  const cur = String((getByPath(handlers.formData, stripSectionPrefix(nodePath)) as string | undefined) ?? '');
   return (
     <AppInput
       key={nodePath}
@@ -703,7 +727,7 @@ function renderSingleNode(
           ),
         ) ||
         children.some((child) => {
-          const val = handlers.formData[child.path];
+          const val = getByPath(handlers.formData, stripSectionPrefix(child.path));
           return val !== undefined && String(val).trim().length > 0;
         });
 
@@ -782,8 +806,9 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
   const loadingState = useCatalogViewModel((s) => s.loadingState);
   const loadCatalog = useCatalogViewModel((s) => s.loadCatalog);
 
-  const formData = (currentSession?.formData.basicVerification ?? {}) as Record<string, unknown>;
-  const photoDetails = (currentSession?.formData.media?.documentPhotoDetails ?? {}) as Record<string, PhotoIssueInspectionBlock>;
+  const formData = (currentSession?.formData.vehicle ?? {}) as Record<string, unknown>;
+  // Photos stored inline with fields in vehicle section
+  const photoDetails = formData as Record<string, PhotoIssueInspectionBlock>;
 
   const mergedSections = useMemo(
     () => mergeByKey(catalog.vehicleSectionChildren),
@@ -797,15 +822,15 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
   const [activeGroupNode, setActiveGroupNode] = useState<ActiveGroupNode | null>(null);
 
   const handleTextChange = useCallback(
-    (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [path]: value }),
+    (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [stripSectionPrefix(path)]: value }),
     [updateFormData],
   );
   const handleSelectChange = useCallback(
-    (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [path]: value }),
+    (path: string, value: string) => updateFormData(InspectionStepId.BasicVerification, { [stripSectionPrefix(path)]: value }),
     [updateFormData],
   );
   const handleMultiSelectChange = useCallback(
-    (path: string, values: string[]) => updateFormData(InspectionStepId.BasicVerification, { [path]: values }),
+    (path: string, values: string[]) => updateFormData(InspectionStepId.BasicVerification, { [stripSectionPrefix(path)]: values }),
     [updateFormData],
   );
   const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
@@ -815,7 +840,7 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
 
   const handleDirectCapture = useCallback(
     (storageKey: string, uri: string) => {
-      const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+      const prev = currentSession?.formData.exterior?.documentPhotoDetails ?? {};
       const existing = prev[storageKey] ?? {};
       updateFormData(InspectionStepId.Media, {
         documentPhotoDetails: {
@@ -824,17 +849,17 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
         },
       });
     },
-    [currentSession?.formData.media?.documentPhotoDetails, updateFormData],
+    [currentSession?.formData.exterior?.documentPhotoDetails, updateFormData],
   );
   const handlePhotoChange = useCallback(
     (block: PhotoIssueInspectionBlock) => {
       if (!activeSlot) return;
-      const prev = currentSession?.formData.media?.documentPhotoDetails ?? {};
+      const prev = currentSession?.formData.exterior?.documentPhotoDetails ?? {};
       updateFormData(InspectionStepId.Media, {
         documentPhotoDetails: { ...prev, [activeSlot.storageKey]: block },
       });
     },
-    [activeSlot, currentSession?.formData.media?.documentPhotoDetails, updateFormData],
+    [activeSlot, currentSession?.formData.exterior?.documentPhotoDetails, updateFormData],
   );
 
   // Required field counter
@@ -856,10 +881,10 @@ const Step1BasicVerification: React.FC<Props> = ({ onNext, onBack }) => {
             if (photoDetails[`${n.path}.${opt.value}`]?.photos?.[0]) count++;
           });
         } else if (input.inputType === 'multi-select') {
-          const vals = formData[n.path] as string[] | undefined;
+          const vals = getByPath(formData, stripSectionPrefix(n.path)) as string[] | undefined;
           if (vals && vals.length > 0) count++;
         } else {
-          const val = formData[n.path];
+          const val = getByPath(formData, stripSectionPrefix(n.path));
           if (val !== undefined && String(val).trim().length > 0) count++;
         }
       }

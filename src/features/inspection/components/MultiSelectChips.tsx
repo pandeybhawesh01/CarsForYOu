@@ -8,9 +8,11 @@ import type { CatalogOption } from '../../../services/api/types';
 interface MultiSelectChipsProps {
   label: string;
   options: CatalogOption[];
-  selected: string[];
-  onChange: (selected: string[]) => void;
+  selected: string[] | Array<{ type: string; extent?: string | string[] }>;
+  onChange: (selected: string[] | Array<{ type: string; extent?: string | string[] }>) => void;
   isRequired?: boolean;
+  /** If true, stores as [{type}] format instead of string[] */
+  useObjectFormat?: boolean;
 }
 
 const MultiSelectChips: React.FC<MultiSelectChipsProps> = ({
@@ -19,15 +21,27 @@ const MultiSelectChips: React.FC<MultiSelectChipsProps> = ({
   selected,
   onChange,
   isRequired = false,
+  useObjectFormat = false,
 }) => {
+  // Extract string values for display
+  const selectedStrings = useObjectFormat && Array.isArray(selected) && selected.length > 0 && typeof selected[0] === 'object'
+    ? (selected as Array<{ type: string }>).map((item) => item.type)
+    : (selected as string[]);
+
   const toggle = useCallback(
     (value: string) => {
-      const next = selected.includes(value)
-        ? selected.filter((v) => v !== value)
-        : [...selected, value];
-      onChange(next);
+      const next = selectedStrings.includes(value)
+        ? selectedStrings.filter((v) => v !== value)
+        : [...selectedStrings, value];
+      
+      // Return in the format expected by parent
+      if (useObjectFormat) {
+        onChange(next.map((type) => ({ type })));
+      } else {
+        onChange(next);
+      }
     },
-    [selected, onChange],
+    [selectedStrings, onChange, useObjectFormat],
   );
 
   return (
@@ -39,7 +53,7 @@ const MultiSelectChips: React.FC<MultiSelectChipsProps> = ({
       <View style={styles.chipsWrap}>
         {options.map((opt) => {
           const val = String(opt.value);
-          const isOn = selected.includes(val);
+          const isOn = selectedStrings.includes(val);
           return (
             <TouchableOpacity
               key={val}

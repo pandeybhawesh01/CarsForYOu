@@ -300,7 +300,7 @@ function renderInput(
   }
 
   if (input.inputType === 'multi-select') {
-    const current = (handlers.formData[nodePath] as string[] | undefined) ?? [];
+    const current = (getByPath(handlers.formData, stripSectionPrefix(nodePath)) as Array<{type: string; extent?: string | string[]}> | string[] | undefined) ?? [];
 
     // Check if any option has modal-type subOptions (inputType: "select")
     const hasModalSubOptions = input.options.some(opt => {
@@ -310,40 +310,22 @@ function renderInput(
     });
 
     if (hasModalSubOptions) {
-      const subValues: Record<string, string | string[]> = {};
-      input.options.forEach(opt => {
-        const val = String(opt.value);
-        const optInputType = (opt as unknown as Record<string, string>).inputType;
-        const subPath = `${nodePath}.${val}`;
-        if (optInputType === 'multi-select') {
-          subValues[val] = (handlers.formData[subPath] as string[] | undefined) ?? [];
-        } else {
-          subValues[val] = String((handlers.formData[subPath] as string | undefined) ?? '');
-        }
-      });
+      // Convert to nested format if it's still flat (for backward compatibility)
+      const issuesArray: Array<{type: string; extent?: string | string[]}> = Array.isArray(current) && current.length > 0
+        ? (typeof current[0] === 'string' 
+            ? current.map(type => ({ type: String(type) })) 
+            : current as Array<{type: string; extent?: string | string[]}>)
+        : [];
 
       return (
         <MultiSelectWithSubOptions
           key={nodePath}
           label={label}
           options={input.options}
-          selected={current}
-          subValues={subValues}
-          onChange={(newSelected, newSubValues) => {
-            handlers.onMultiSelectChange(nodePath, newSelected);
-            input.options.forEach(opt => {
-              const val = String(opt.value);
-              const optInputType = (opt as unknown as Record<string, string>).inputType;
-              const subPath = `${nodePath}.${val}`;
-              const subVal = newSubValues[val];
-              if (subVal !== undefined) {
-                if (optInputType === 'multi-select') {
-                  handlers.onMultiSelectChange(subPath, Array.isArray(subVal) ? subVal : []);
-                } else {
-                  handlers.onSelectChange(subPath, Array.isArray(subVal) ? (subVal[0] ?? '') : subVal);
-                }
-              }
-            });
+          selected={issuesArray}
+          onChange={(newIssues) => {
+            // Store directly as nested objects
+            handlers.onMultiSelectChange(nodePath, newIssues as unknown as string[]);
           }}
         />
       );
@@ -770,19 +752,19 @@ const Step6Media: React.FC<Props> = ({ onNext, onBack }) => {
 
   const handleTextChange = useCallback(
     (path: string, value: string) =>
-      updateFormData(InspectionStepId.Exterior, { [path]: value }),
+      updateFormData(InspectionStepId.Media, { [path]: value }),
     [updateFormData],
   );
 
   const handleSelectChange = useCallback(
     (path: string, value: string) =>
-      updateFormData(InspectionStepId.Exterior, { [path]: value }),
+      updateFormData(InspectionStepId.Media, { [path]: value }),
     [updateFormData],
   );
 
   const handleMultiSelectChange = useCallback(
     (path: string, values: string[]) =>
-      updateFormData(InspectionStepId.Exterior, { [path]: values }),
+      updateFormData(InspectionStepId.Media, { [path]: values }),
     [updateFormData],
   );
 

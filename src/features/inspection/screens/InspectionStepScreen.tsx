@@ -1,53 +1,49 @@
+/**
+ * InspectionStepScreen
+ *
+ * Fully dynamic — renders one CatalogSection per step.
+ * The number of steps, their titles, and their fields all come from the
+ * catalog API. No hardcoded step list.
+ */
+
 import React, { useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { InspectionStackScreenProps } from '../../../navigation/types';
-import { InspectionStepId } from '../types';
-import Step1BasicVerification from './steps/Step1_BasicVerification';
-import Step2AirConditioning from './steps/Step2_Exterior';
-import Step3SteeringBrakes from './steps/Step3_Interior';
-import Step4EngineTransmission from './steps/Step4_Engine';
-import Step5ElectricalsInterior from './steps/Step5_ElectricalsInteriors';
-import Step6ExteriorTyres from './steps/Step6_Media';
+import DynamicInspectionStep from './steps/DynamicInspectionStep';
 import { useInspectionStore } from '../store/inspectionStore';
 import { useAutoSaveDraft } from '../../../hooks/useAutoSaveDraft';
 import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
+import { colors } from '../../../constants/colors';
+import { typography } from '../../../constants/typography';
+import { spacing, verticalSpacing } from '../../../constants/spacing';
 
 type Props = InspectionStackScreenProps<'InspectionStep'>;
 
-const STEP_ORDER = [
-  InspectionStepId.BasicVerification,
-  InspectionStepId.Exterior,
-  InspectionStepId.Interior,
-  InspectionStepId.Engine,
-  InspectionStepId.Documents,
-  InspectionStepId.Media,
-];
-
 const InspectionStepScreen: React.FC<Props> = ({ navigation, route }) => {
   const { stepIndex, inspectionId } = route.params;
-  const { currentLead, currentSession } = useInspectionStore();
+  const { currentSession } = useInspectionStore();
   const catalog = useCatalogViewModel(selectCatalog);
+  const loadingState = useCatalogViewModel((s) => s.loadingState);
 
-  // Auto-save draft every 10 seconds (only when inside step screens)
-  // NO unmount save on step navigation (back/next buttons)
   useAutoSaveDraft({
     session: currentSession,
     catalog,
-    enabled: !!currentSession, // Only auto-save when inspection is active
-    saveOnUnmount: false, // Don't save on unmount for step navigation
+    enabled: !!currentSession,
+    saveOnUnmount: false,
   });
+
+  const sections = catalog.sections;
+  const totalSections = sections.length;
 
   const handleNext = useCallback(() => {
     const nextIndex = stepIndex + 1;
-    if (nextIndex < STEP_ORDER.length) {
-      navigation.replace('InspectionStep', {
-        inspectionId,
-        stepIndex: nextIndex,
-      });
+    if (nextIndex < totalSections) {
+      navigation.replace('InspectionStep', { inspectionId, stepIndex: nextIndex });
     } else {
       navigation.navigate('ReviewSubmit', { inspectionId });
     }
-  }, [navigation, stepIndex, inspectionId]);
+  }, [navigation, stepIndex, inspectionId, totalSections]);
 
   const handleBack = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -57,25 +53,48 @@ const InspectionStepScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [navigation, inspectionId]);
 
-  const props = { onNext: handleNext, onBack: handleBack };
-
-  switch (stepIndex) {
-    case 0:
-      return <Step1BasicVerification {...props} />;
-    case 1:
-      return <Step4EngineTransmission {...props} />;
-    case 2:
-      return <Step2AirConditioning {...props} />;
-    case 3:
-      return <Step3SteeringBrakes {...props} />;
-    case 4:
-      return <Step5ElectricalsInterior {...props} />;
-    case 5:
-      return <Step6ExteriorTyres {...props} />;
-    default:
-      navigation.navigate('InspectionHome', { inspectionId });
-      return null;
+  // Catalog still loading and no sections yet
+  if (loadingState === 'loading' && totalSections === 0) {
+    return (
+      <SafeAreaView style={s.centredSafe} edges={['bottom']}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={s.loadingText}>Loading inspection form…</Text>
+      </SafeAreaView>
+    );
   }
+
+  // No sections available (error or empty catalog)
+  if (totalSections === 0) {
+    return (
+      <SafeAreaView style={s.centredSafe} edges={['bottom']}>
+        <Text style={s.errorText}>⚠️ No inspection sections found.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Guard against out-of-range index
+  if (stepIndex < 0 || stepIndex >= totalSections) {
+    navigation.navigate('InspectionHome', { inspectionId });
+    return null;
+  }
+
+  const section = sections[stepIndex];
+
+  return (
+    <DynamicInspectionStep
+      section={section}
+      sectionIndex={stepIndex}
+      totalSections={totalSections}
+      onNext={handleNext}
+      onBack={handleBack}
+    />
+  );
 };
+
+const s = StyleSheet.create({
+  centredSafe: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', gap: verticalSpacing.base, padding: spacing.xl },
+  loadingText: { fontSize: typography.fontSize.sm, color: colors.textSecondary },
+  errorText: { fontSize: typography.fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
+});
 
 export default InspectionStepScreen;

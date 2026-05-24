@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import type { MainTabScreenProps } from '../../../navigation/types';
 import type { InspectionLead } from '../../inspection/types';
 import { InspectionStatus } from '../../inspection/types';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
 import { mockInspections, mockUser } from '../../../services/mockData';
 import InspectionCard from '../../../components/InspectionCard';
 import EmptyState from '../../../components/EmptyState';
@@ -35,6 +36,20 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('ALL');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { setCurrentLead } = useInspectionStore();
+  const catalog = useCatalogViewModel(selectCatalog);
+  const catalogState = useCatalogViewModel((s) => s.catalog);
+  const loadingState = useCatalogViewModel((s) => s.loadingState);
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('[Dashboard] 🔍 Catalog state changed:', {
+      loadingState,
+      hasCatalogState: !!catalogState,
+      hasCatalogFromSelector: !!catalog,
+      sectionsLength: catalog?.sections?.length,
+      catalogStateKeys: catalogState ? Object.keys(catalogState).slice(0, 5) : [],
+    });
+  }, [catalog, catalogState, loadingState]);
 
   const filteredLeads = useMemo(() => {
     if (activeFilter === 'ALL') return mockInspections;
@@ -43,15 +58,39 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleCardPress = useCallback(
     (lead: InspectionLead) => {
-      // Just set the lead, don't load draft yet
-      setCurrentLead(lead);
+      console.log('[Dashboard] 🔍 Catalog state:', {
+        hasCatalog: !!catalog,
+        hasSections: !!catalog?.sections,
+        sectionsLength: catalog?.sections?.length,
+        catalogKeys: catalog ? Object.keys(catalog) : [],
+      });
+      
+      // Ensure catalog is loaded
+      if (!catalog || !catalog.sections || catalog.sections.length === 0) {
+        console.error('[Dashboard] ❌ Catalog not loaded! Cannot set lead.');
+        console.error('[Dashboard] 📊 Catalog object:', catalog);
+        // TODO: Show error alert to user
+        return;
+      }
+      
+      // Extract catalog sections for dynamic step creation
+      const catalogSections = catalog.sections.map((sec) => ({
+        section: sec.section,
+        label: sec.label,
+      }));
+      
+      console.log('[Dashboard] 📋 Setting lead with', catalogSections.length, 'sections:', catalogSections.map(s => s.label).join(', '));
+      
+      // Set the lead with catalog sections
+      setCurrentLead(lead, catalogSections);
+      
       // @ts-ignore – cross-navigator navigation
       navigation.navigate('InspectionNavigator', {
         screen: 'LeadDetails',
         params: { inspectionId: lead.id },
       });
     },
-    [navigation, setCurrentLead],
+    [navigation, setCurrentLead, catalog],
   );
 
   const handleRefresh = useCallback(() => {

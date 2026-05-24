@@ -170,31 +170,39 @@ export const mockInspections: InspectionLead[] = [
 
 // ─── Empty Inspection Session Factory ─────────────────────────────────────────
 
-export const createEmptySession = (lead: InspectionLead): InspectionSession => ({
-  leadId: lead.id,
-  appointmentId: lead.appointmentId,
-  startedAt: new Date().toISOString(),
-  status: InspectionStatus.InProgress,
-  steps: [
-    { id: InspectionStepId.BasicVerification, title: 'Car Details', icon: '📋', isCompleted: false, isLocked: false },
-    { id: InspectionStepId.Exterior, title: 'Engine + Transmission', icon: '⚙️', isCompleted: false, isLocked: false },
-    { id: InspectionStepId.Interior, title: 'Air Conditioning', icon: '❄️', isCompleted: false, isLocked: false },
-    { id: InspectionStepId.Engine, title: 'Steering + Brakes', icon: '🛞', isCompleted: false, isLocked: false },
-    { id: InspectionStepId.Documents, title: 'Electricals + Interiors', icon: '💡', isCompleted: false, isLocked: false },
-    { id: InspectionStepId.Media, title: 'Exterior + Tyres', icon: '🚙', isCompleted: false, isLocked: false },
-  ],
-  formData: {
-    basicVerification: {},
-    exterior: {},
-    interior: {},
-    ac: {},
-    engine: {},
-    documents: {},
-    media: {
-      additionalImages: [],
-      exteriorTyreParts: {},
-      engineComponentPhotos: {},
-      documentPhotoDetails: {},
-    },
-  },
-});
+/**
+ * Creates an empty inspection session.
+ * Builds steps dynamically from catalog sections.
+ * Catalog MUST be loaded before calling this (loaded on app open).
+ */
+export const createEmptySession = (
+  lead: InspectionLead,
+  catalogSections: Array<{ section: string; label: string }>,
+): InspectionSession => {
+  // Build steps dynamically from catalog sections
+  const steps = catalogSections.map((sec, idx) => ({
+    id: sec.section as any, // Use section key as step ID
+    title: sec.label,
+    icon: ['📋', '⚙️', '❄️', '🛞', '💡', '🚙', '📄', '🔧'][idx] || '📝', // Cycle through icons
+    isCompleted: false,
+    isLocked: false,
+  }));
+
+  // Build formData with empty objects for each section
+  const formData: Record<string, unknown> = {
+    additionalImages: [],
+  };
+
+  catalogSections.forEach((sec) => {
+    formData[sec.section] = {};
+  });
+
+  return {
+    leadId: lead.id,
+    appointmentId: lead.appointmentId,
+    startedAt: new Date().toISOString(),
+    status: InspectionStatus.InProgress,
+    steps,
+    formData: formData as any,
+  };
+};

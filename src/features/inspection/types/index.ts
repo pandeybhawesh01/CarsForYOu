@@ -202,46 +202,26 @@ export interface DocumentsData {
 }
 
 export interface MediaData {
-  [key: string]: string | string[] | Record<string, PhotoIssueInspectionBlock> | PhotoIssueInspectionBlock | undefined;
-  frontImage?: string;
-  rearImage?: string;
-  leftSideImage?: string;
-  rightSideImage?: string;
-  engineBayImage?: string;
-  dashboardImage?: string;
-  odometerImage?: string;
-  vinPlateImage?: string;
-  rcFrontImage?: string;
-  rcBackImage?: string;
-  batteryAlternatorImage?: string;
-  dipstickImage?: string;
-  sumpImage?: string;
-  chassisEmbossingImage?: string;
-  initialOdometerImage?: string;
-  finalOdometerImage?: string;
-  additionalImages: string[];
-  videoPath?: string;
-  /** Exterior + tyres: keyed part id → photo + issues (per PDF-style walkaround). */
-  exteriorTyreParts?: Record<string, PhotoIssueInspectionBlock>;
-  /** Engine image tab: battery, dipstick, sump, etc. */
-  engineComponentPhotos?: Record<string, PhotoIssueInspectionBlock>;
-  /** Car details step: RC / VIN etc. with same submit flow as other photo inspections. */
-  documentPhotoDetails?: Record<string, PhotoIssueInspectionBlock>;
-  /** Air conditioning panel capture + issues. */
-  acPanelInspection?: PhotoIssueInspectionBlock;
-  acPanelImage?: string;
+  [key: string]: string | string[] | PhotoIssueInspectionBlock | undefined;
+  // No separate photo storage - photos are inline with each field in their respective sections
 }
 
 // ─── Inspection Form Overall ──────────────────────────────────────────────────
 
+/**
+ * InspectionFormData - matches backend schema exactly
+ * Each section stores its own data with photos inline.
+ * Index signature allows dynamic section keys from the catalog API.
+ */
 export interface InspectionFormData {
-  basicVerification: Partial<BasicVerificationData>;
-  exterior: Partial<ExteriorData>;
-  interior: Partial<InteriorData>;
-  engine: Partial<EngineData>;
-  documents: Partial<DocumentsData>;
-  media: Partial<MediaData>;
-    ac: Partial<ACData>;
+  [sectionKey: string]: Record<string, unknown> | string[] | undefined;
+  vehicle: Record<string, unknown>;
+  engineTransmission: Record<string, unknown>;
+  airConditioning: Record<string, unknown>;
+  steeringBrakes: Record<string, unknown>;
+  electricalsInteriors: Record<string, unknown>;
+  exterior: Record<string, unknown>;
+  additionalImages?: string[];
 }
 
 export interface InspectionStep {
