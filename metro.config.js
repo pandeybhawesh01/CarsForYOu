@@ -6,6 +6,18 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
  *
  * @type {import('@react-native/metro-config').MetroConfig}
  */
-const config = {};
+const blockList = new RegExp(
+	[
+		'node_modules[\\/]react-native-nitro-image[\\/]android[\\/]\\.cxx[\\/].*',
+		'node_modules[\\/]react-native-nitro-modules[\\/]android[\\/]\\.cxx[\\/].*',
+		'node_modules[\\/]react-native-vision-camera[\\/]android[\\/]\\.cxx[\\/].*',
+	].join('|'),
+);
+
+const config = {
+	resolver: {
+		blockList,
+	},
+};
 
 module.exports = mergeConfig(getDefaultConfig(__dirname), config);

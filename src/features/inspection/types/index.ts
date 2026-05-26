@@ -162,12 +162,12 @@ export interface InteriorData {
 
 /**
  * Shared shape for coolant, exterior + tyres parts, engine component photos, and document captures.
- * URIs are placeholders until a real image picker is wired.
+ * Photos are stored as array of objects with url and capturedAt timestamp.
  */
 export interface PhotoIssueInspectionBlock {
   status?: string;
   issues?: string[];
-  photos?: string[];
+  photos?: Array<{ url: string; capturedAt: string }>;
 }
 
 /** Alias for engine form coolant field (same payload as other photo+issue flows). */

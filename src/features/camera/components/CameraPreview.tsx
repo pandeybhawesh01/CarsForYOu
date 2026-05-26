@@ -1,5 +1,5 @@
 /**
- * CameraPreview - Wraps react-native-vision-camera v4 Camera component
+ * CameraPreview - Wraps react-native-vision-camera v5 Camera component
  * Provides loading state and error handling for camera initialization
  */
 
@@ -7,7 +7,7 @@ import React, { memo, useCallback, useState, forwardRef } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { colors } from '../../../constants/colors';
 import { CameraError, CameraErrorCode } from '../types';
-import { Camera, type CameraDevice } from '../utils/visionCamera';
+import { Camera, type CameraDevice, type CameraOutput } from '../utils/visionCamera';
 
 // ============================================================================
 // Props
@@ -17,6 +17,7 @@ interface CameraPreviewProps {
   device: CameraDevice;
   isActive: boolean;
   mode?: 'photo' | 'video';  // Add mode prop
+  outputs?: CameraOutput[];
   onInitialized?: () => void;
   onError?: (error: CameraError) => void;
   children?: React.ReactNode;
@@ -27,13 +28,13 @@ interface CameraPreviewProps {
 // ============================================================================
 
 const CameraPreview = forwardRef<any, CameraPreviewProps>(
-  ({ device, isActive, mode = 'photo', onInitialized, onError, children }, ref) => {
+  ({ device, isActive, mode: _mode = 'photo', outputs, onInitialized, onError, children }, ref) => {
   const [isStarted, setIsStarted] = useState(false);
 
-  const handleInitialized = useCallback(() => {
+  const handleStarted = useCallback(() => {
     setIsStarted(true);
     onInitialized?.();
-    console.log('[CameraPreview] Camera initialized');
+    console.log('[CameraPreview] Camera started');
   }, [onInitialized]);
 
   const handleError = useCallback(
@@ -58,10 +59,8 @@ const CameraPreview = forwardRef<any, CameraPreviewProps>(
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={isActive}
-        photo={mode === 'photo' || mode === 'video'}
-        video={mode === 'video'}
-        audio={mode === 'video'}
-        onInitialized={handleInitialized}
+        outputs={outputs}
+        onStarted={handleStarted}
         onError={handleError}
       />
 

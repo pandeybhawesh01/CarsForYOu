@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { InspectionLead, InspectionSession, InspectionFormData } from '../types';
 import { InspectionStepId, InspectionStatus } from '../types';
 import { createEmptySession } from '../../../services/mockData';
+import { draftService } from '../../../services/api/draftService';
 import { setByPath } from '../utils/nestedFormData';
 
 interface InspectionState {
@@ -48,7 +49,7 @@ const getStepKey = (stepId: InspectionStepId): keyof InspectionFormData => {
   return map[stepId];
 };
 
-export const useInspectionStore = create<InspectionStore>((set) => ({
+export const useInspectionStore = create<InspectionStore>((set, get) => ({
   currentLead: null,
   currentSession: null,
   isLoading: false,
@@ -79,40 +80,44 @@ export const useInspectionStore = create<InspectionStore>((set) => ({
     });
     
     // Try to load draft from Redis (non-blocking)
-    try {
-      const { draftService } = await import('../../../services/api/draftService');
-      const draft = await draftService.loadDraft(lead.appointmentId);
-      
-      if (draft && draft.formData) {
-        console.log('[InspectionStore] 📥 Draft found! Pre-filling form data...');
-        console.log('[InspectionStore] ℹ️ Draft is already in nested format - no transformation needed');
-        
-        // Draft data is already in nested format - use directly
-        set((state) => {
-          if (!state.currentSession) return state;
-          
-          return {
-            currentSession: {
-              ...state.currentSession,
-              formData: {
-                ...state.currentSession.formData,
-                ...draft.formData,
+    void (async () => {
+      try {
+        const draft = await draftService.loadDraft(lead.appointmentId);
+
+        if (draft && draft.formData) {
+          console.log('[InspectionStore] 📥 Draft found! Pre-filling form data...');
+          console.log('[InspectionStore] ℹ️ Draft is already in nested format - no transformation needed');
+
+          // Draft data is already in nested format - use directly
+          set((state) => {
+            const current = get().currentLead;
+            if (!state.currentSession || !current || current.appointmentId !== lead.appointmentId) {
+              return { isLoading: false };
+            }
+
+            return {
+              currentSession: {
+                ...state.currentSession,
+                formData: {
+                  ...state.currentSession.formData,
+                  ...draft.formData,
+                },
               },
-            },
-            isLoading: false,
-          };
-        });
-        
-        console.log('[InspectionStore] ✅ Draft loaded and applied');
-      } else {
-        console.log('[InspectionStore] ℹ️ No draft found, starting fresh');
+              isLoading: false,
+            };
+          });
+
+          console.log('[InspectionStore] ✅ Draft loaded and applied');
+        } else {
+          console.log('[InspectionStore] ℹ️ No draft found, starting fresh');
+          set({ isLoading: false });
+        }
+      } catch (error) {
+        console.error('[InspectionStore] ❌ Failed to load draft:', error);
+        // Continue with empty session
         set({ isLoading: false });
       }
-    } catch (error) {
-      console.error('[InspectionStore] ❌ Failed to load draft:', error);
-      // Continue with empty session
-      set({ isLoading: false });
-    }
+    })();
   },
 
   updateFormData: (stepId, data) => {

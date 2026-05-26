@@ -56,6 +56,8 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
 
   const handleCaptureSuccess = useCallback(
     (uri: string) => {
+      console.log('[PhotoCapture] Capture success, URI:', uri);
+      console.log('[PhotoCapture] Is valid URI:', isValidMediaUri(uri));
       setIsCameraOpen(false);
       onCapture(uri);
     },
@@ -75,8 +77,12 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
     onCapture('');
   }, [onCapture]);
 
-  // Show actual image only for valid http/file/content URIs
-  const showImage = Boolean(imageUri && isValidMediaUri(imageUri));
+  // Show actual image for any non-empty URI
+  // Be more permissive to handle various URI formats from camera
+  const showImage = Boolean(imageUri && typeof imageUri === 'string' && imageUri.length > 0);
+
+  console.log('[PhotoCapture] Render - imageUri:', imageUri);
+  console.log('[PhotoCapture] Render - showImage:', showImage);
 
   // --------------------------------------------------------------------------
   // Render
@@ -117,12 +123,14 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
               <Text style={styles.imagePlaceholderSubtext}>Photo Captured</Text>
             </View>
           )}
+          
+          {/* Delete button overlay */}
           <TouchableOpacity
             onPress={handleEdit}
-            style={styles.editRow}
-            accessibilityLabel="Retake photo"
+            style={styles.deleteButton}
+            accessibilityLabel="Delete photo"
             accessibilityRole="button">
-            <Text style={styles.editText}>↻ Edit</Text>
+            <Text style={styles.deleteIcon}>✕</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -211,6 +219,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
+    position: 'relative',
   },
   imagePlaceholder: {
     height: vs(160),
@@ -231,15 +240,23 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     color: colors.textSecondary,
   },
-  editRow: {
-    padding: spacing.sm,
-    alignItems: 'flex-end',
-    backgroundColor: colors.surface,
+  deleteButton: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.surface,
   },
-  editText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary,
-    fontWeight: typography.fontWeight.medium,
+  deleteIcon: {
+    fontSize: 18,
+    color: colors.surface,
+    fontWeight: typography.fontWeight.bold,
   },
 });
 

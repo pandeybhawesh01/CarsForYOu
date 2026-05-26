@@ -1,9 +1,6 @@
 /**
  * CameraService - Encapsulates camera operation helpers
- * Works with react-native-vision-camera v4 camera ref API
- *
- * In v4, capture is done via camera.takePhoto() and
- * recording via camera.startRecording() / camera.stopRecording()
+ * Works with react-native-vision-camera v5 output API
  */
 
 import {
@@ -31,7 +28,7 @@ const DEFAULT_PHOTO_OPTIONS: PhotoCaptureOptions = {
   format: CAMERA_CONFIG.PHOTO_FORMAT,
   enableAutoFocus: CAMERA_CONFIG.ENABLE_AUTO_FOCUS,
   enableAutoExposure: CAMERA_CONFIG.ENABLE_AUTO_EXPOSURE,
-  flashMode: 'auto',
+  flashMode: 'off',
   enableAutoStabilization: CAMERA_CONFIG.ENABLE_AUTO_STABILIZATION,
 };
 
@@ -61,7 +58,7 @@ export class CameraService {
   }
 
   // --------------------------------------------------------------------------
-  // Photo Capture (v4: via camera.takePhoto())
+  // Photo Capture (v5: via photoOutput.capturePhotoToFile())
   // --------------------------------------------------------------------------
 
   /**
@@ -69,20 +66,23 @@ export class CameraService {
    * Returns a normalized file URI compatible with React Native Image component
    */
   static async capturePhoto(
-    camera: any,
+    photoOutput: any,
     options: Partial<PhotoCaptureOptions> = {},
   ): Promise<string> {
     const mergedOptions = { ...DEFAULT_PHOTO_OPTIONS, ...options };
 
     try {
-      const photo = await camera.takePhoto({
-        qualityPrioritization: 'quality',
-        flash: mergedOptions.flashMode,
-        skipMetadata: false,
-      });
+      if (!photoOutput?.capturePhotoToFile) {
+        throw createCameraNotAvailableError(new Error('Photo output not initialized'));
+      }
 
-      // photo.path is an absolute file path — normalize to file:// URI
-      const uri = getPlatformUri(photo.path);
+      const photoFile = await photoOutput.capturePhotoToFile(
+        { flashMode: mergedOptions.flashMode },
+        {},
+      );
+
+      // filePath is an absolute file path — normalize to file:// URI
+      const uri = getPlatformUri(photoFile.filePath);
       console.log('[CameraService] Photo captured at:', uri);
       return uri;
     } catch (error) {
@@ -93,25 +93,29 @@ export class CameraService {
   }
 
   // --------------------------------------------------------------------------
-  // Video Recording (v4: via camera.startRecording() / camera.stopRecording())
+  // Video Recording (v5: via Recorder.startRecording() / Recorder.stopRecording())
   // --------------------------------------------------------------------------
 
   /**
    * Starts video recording using the provided camera ref
    */
   static async startRecording(
-    camera: any,
+    recorder: any,
     onRecordingFinished: (uri: string) => void,
     onRecordingError: (error: CameraError) => void,
   ): Promise<void> {
     try {
-      await camera.startRecording({
-        onRecordingFinished: (video: any) => {
-          const uri = getPlatformUri(video.path);
+      if (!recorder?.startRecording) {
+        throw createCameraNotAvailableError(new Error('Recorder not initialized'));
+      }
+
+      await recorder.startRecording(
+        (filePath: string) => {
+          const uri = getPlatformUri(filePath);
           console.log('[CameraService] Video recorded at:', uri);
           onRecordingFinished(uri);
         },
-        onRecordingError: (error: Error) => {
+        (error: Error) => {
           const cameraError = CameraService.handleCameraError(
             error,
             'startRecording',
@@ -119,7 +123,7 @@ export class CameraService {
           logCameraError(cameraError, 'CameraService.startRecording');
           onRecordingError(cameraError);
         },
-      });
+      );
     } catch (error) {
       const cameraError = CameraService.handleCameraError(error, 'startRecording');
       logCameraError(cameraError, 'CameraService.startRecording');
@@ -130,9 +134,12 @@ export class CameraService {
   /**
    * Stops the current video recording
    */
-  static async stopRecording(camera: any): Promise<void> {
+  static async stopRecording(recorder: any): Promise<void> {
     try {
-      await camera.stopRecording();
+      if (!recorder?.stopRecording) {
+        throw createCameraNotAvailableError(new Error('Recorder not initialized'));
+      }
+      await recorder.stopRecording();
       console.log('[CameraService] Recording stopped');
     } catch (error) {
       const cameraError = CameraService.handleCameraError(error, 'stopRecording');

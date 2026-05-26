@@ -4,17 +4,17 @@ import { CameraErrorCode } from '../../types';
 describe('CameraService', () => {
   it('capturePhoto returns file:// URI on success', async () => {
     const photoOutput = {
-      capturePhoto: jest.fn().mockResolvedValue({ path: '/tmp/photo.jpg' }),
+      capturePhotoToFile: jest.fn().mockResolvedValue({ filePath: '/tmp/photo.jpg' }),
     } as any;
 
     const uri = await CameraService.capturePhoto(photoOutput);
     expect(uri).toBe('file:///tmp/photo.jpg');
-    expect(photoOutput.capturePhoto).toHaveBeenCalled();
+    expect(photoOutput.capturePhotoToFile).toHaveBeenCalled();
   });
 
   it('capturePhoto throws CameraError with CAPTURE_FAILED on failure', async () => {
     const photoOutput = {
-      capturePhoto: jest.fn().mockRejectedValue(new Error('capture failed')),
+      capturePhotoToFile: jest.fn().mockRejectedValue(new Error('capture failed')),
     } as any;
 
     await expect(CameraService.capturePhoto(photoOutput)).rejects.toHaveProperty(
@@ -29,7 +29,7 @@ describe('CameraService', () => {
 
     const recorder = {
       startRecording: jest.fn().mockImplementation((onFinish: any) => {
-        onFinish('/tmp/video.mp4');
+        onFinish('/tmp/video.mp4', 'stopped');
         return Promise.resolve();
       }),
     } as any;

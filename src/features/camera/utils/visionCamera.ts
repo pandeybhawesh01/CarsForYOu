@@ -34,7 +34,7 @@ export const useCameraDevice = (position: 'back' | 'front' = 'back'): CameraDevi
   }
   
   try {
-    // v4 API: useCameraDevice expects position as 'back' | 'front'
+    // v5 API: useCameraDevice expects position as 'back' | 'front'
     return visionCamera.useCameraDevice(position);
   } catch (error) {
     console.error('[Camera] Error calling useCameraDevice:', error);
@@ -48,8 +48,10 @@ export const useCameraPermission =
 export const useMicrophonePermission =
   visionCamera?.useMicrophonePermission ?? (() => ({ hasPermission: false, status: 'denied', requestPermission: async () => false }));
 
-// v4 API: useFrameProcessor instead of usePhotoLibrary/useVideoRecording
-// We'll use Camera ref methods instead
-export const useFrameProcessor = visionCamera?.useFrameProcessor ?? (() => undefined);
+export const usePhotoOutput =
+  visionCamera?.usePhotoOutput ?? (() => undefined);
 
-export type { CameraDevice, CameraProps } from 'react-native-vision-camera';
+export const useVideoOutput =
+  visionCamera?.useVideoOutput ?? (() => undefined);
+
+export type { CameraDevice, CameraProps, CameraOutput, CameraPhotoOutput, CameraVideoOutput, Recorder } from 'react-native-vision-camera';

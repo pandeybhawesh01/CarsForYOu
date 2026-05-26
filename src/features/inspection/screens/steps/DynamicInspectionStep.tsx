@@ -262,11 +262,20 @@ function renderInput(
     return input.options.map((opt) => {
       const slotKey = `${nodePath}.${String(opt.value)}`;
       const slotLabel = opt.label.toLowerCase() === 'image' ? label : cleanLabel(opt.label);
-      const block = handlers.photoDetails[slotKey];
+      // Use getByPath to access nested photo data
+      const block = getByPath(handlers.formData, stripSectionPrefix(slotKey)) as PhotoIssueInspectionBlock | undefined;
+      // Extract URL from photo object: photos is always array of { url, capturedAt }
+      // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
+      const photoUrl = block?.photos?.[0]?.url;
+      
+      console.log('[renderInput] 📸 Photo slot:', slotKey);
+      console.log('[renderInput] 📦 Block:', JSON.stringify(block, null, 2));
+      console.log('[renderInput]  Photo URL:', photoUrl);
+      
       if (String(opt.value).toLowerCase() === 'video') {
-        return <VideoCapture key={slotKey} label={slotLabel} videoUri={block?.photos?.[0]} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />;
+        return <VideoCapture key={slotKey} label={slotLabel} videoUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />;
       }
-      return <PhotoCapture key={slotKey} label={slotLabel} imageUri={block?.photos?.[0]} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />;
+      return <PhotoCapture key={slotKey} label={slotLabel} imageUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />;
     });
   }
 
@@ -352,11 +361,15 @@ function renderInput(
           const subPath = parentPath ? `${parentPath}.${String(sub.value)}` : String(sub.value);
           const subLabel = cleanLabel(sub.label);
           if (subInputType === 'file-upload') {
-            const block = handlers.photoDetails[subPath];
+            // Use getByPath to access nested photo data
+            const block = getByPath(handlers.formData, stripSectionPrefix(subPath)) as PhotoIssueInspectionBlock | undefined;
+            // Extract URL from photo object: photos is always array of { url, capturedAt }
+            // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
+            const photoUrl = block?.photos?.[0]?.url;
             if (String(sub.value).toLowerCase() === 'video') {
-              return <VideoCapture key={`${nodePath}-sub-${sIdx}`} label={subLabel} videoUri={block?.photos?.[0]} onCapture={(uri) => handlers.onDirectCapture(subPath, uri)} />;
+              return <VideoCapture key={`${nodePath}-sub-${sIdx}`} label={subLabel} videoUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(subPath, uri)} />;
             }
-            return <PhotoCapture key={`${nodePath}-sub-${sIdx}`} label={subLabel} imageUri={block?.photos?.[0]} onCapture={(uri) => handlers.onDirectCapture(subPath, uri)} />;
+            return <PhotoCapture key={`${nodePath}-sub-${sIdx}`} label={subLabel} imageUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(subPath, uri)} />;
           }
           if (subInputType === 'multi-select') {
             const s2 = ((sub as unknown as Record<string, unknown[]>).subOptions2 ?? []).map((x) => ({ value: (x as Record<string, unknown>).value as string, label: (x as Record<string, unknown>).label as string, dataType: 'STRING' as const, subOptions1: [] }));
@@ -425,7 +438,12 @@ function renderSingleNode(node: CatalogNode, handlers: RenderHandlers, keyPrefix
       const inputs = getInputs(node);
       const children = getChildren(node);
       const hasContent =
-        inputs.some((inp) => inp.inputType === 'file-upload' && inp.options.some((opt) => handlers.photoDetails[`${node.path}.${String(opt.value)}`]?.photos?.[0])) ||
+        inputs.some((inp) => inp.inputType === 'file-upload' && inp.options.some((opt) => {
+          const photoBlock = getByPath(handlers.formData, stripSectionPrefix(`${node.path}.${String(opt.value)}`)) as PhotoIssueInspectionBlock | undefined;
+          // Check for photo URL: photos is always array of { url, capturedAt }
+          // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
+          return photoBlock?.photos?.[0]?.url;
+        })) ||
         children.some((child) => { const val = getByPath(handlers.formData, stripSectionPrefix(child.path)); return val !== undefined && String(val).trim().length > 0; });
       return <GroupCard key={`${keyPrefix}-card`} label={cleanLabel(node.label)} hasContent={hasContent} onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })} />;
     }
@@ -509,7 +527,20 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
 
   const handleDirectCapture = useCallback(
     (storageKey: string, uri: string) => {
-      updateFormDataBySection(sectionKey, { [stripSectionPrefix(storageKey)]: { photos: uri ? [uri] : [], status: uri ? 'good' : undefined } });
+      console.log('[DynamicStep] handleDirectCapture called');
+      console.log('[DynamicStep] storageKey:', storageKey);
+      console.log('[DynamicStep] uri:', uri);
+      
+      // Format photo data to match backend structure: { url, capturedAt }
+      const photoData = uri ? [{ url: uri, capturedAt: new Date().toISOString() }] : [];
+      const dataToSave = { 
+        [stripSectionPrefix(storageKey)]: { 
+          photos: photoData
+        } 
+      };
+      
+      console.log('[DynamicStep] Saving data:', JSON.stringify(dataToSave, null, 2));
+      updateFormDataBySection(sectionKey, dataToSave);
     },
     [updateFormDataBySection, sectionKey],
   );
@@ -527,7 +558,12 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
       let count = 0;
       getInputs(n).forEach((input) => {
         if (input.inputType === 'file-upload') {
-          input.options.forEach((opt) => { if (photoDetails[`${n.path}.${opt.value}`]?.photos?.[0]) count++; });
+          input.options.forEach((opt) => { 
+            const photoBlock = getByPath(formData, stripSectionPrefix(`${n.path}.${opt.value}`)) as PhotoIssueInspectionBlock | undefined;
+            // Check for photo URL: photos is always array of { url, capturedAt }
+            // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
+            if (photoBlock?.photos?.[0]?.url) count++; 
+          });
         } else if (input.inputType === 'multi-select') {
           const vals = getByPath(formData, stripSectionPrefix(n.path)) as string[] | undefined;
           if (vals && vals.length > 0) count++;
@@ -541,7 +577,7 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
     };
     mergedSections.forEach((sec) => { result[sec.key] = sec.nodes.reduce((sum, n) => sum + countNode(n), 0); });
     return result;
-  }, [mergedSections, formData, photoDetails]);
+  }, [mergedSections, formData]);
 
   const currentSectionIndex = mergedSections.findIndex((s) => s.key === resolvedActiveKey);
   const hasNextTab = currentSectionIndex >= 0 && currentSectionIndex < mergedSections.length - 1;
@@ -604,7 +640,6 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
       </Modal>
 
       {/* Group detail modal */}
-      {console.log('[DynamicStep] 🎭 Group modal visible:', activeGroupNode !== null, 'activeGroupNode:', activeGroupNode?.label)}
       <Modal visible={activeGroupNode !== null} animationType="slide" onRequestClose={handleCloseGroupModal}>
         <SafeAreaView style={s.modalSafe} edges={['bottom']}>
           {activeGroupNode ? (
