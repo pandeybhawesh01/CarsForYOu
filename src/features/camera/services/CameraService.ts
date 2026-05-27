@@ -111,7 +111,10 @@ export class CameraService {
 
       await recorder.startRecording(
         (filePath: string) => {
-          const uri = getPlatformUri(filePath);
+          // Fix Vision Camera v5 bug: missing dot before mp4 extension
+          // Changes "VisionCamera_123mp4" to "VisionCamera_123.mp4"
+          const fixedPath = filePath.replace(/(\d+)(mp4)$/, '$1.$2');
+          const uri = getPlatformUri(fixedPath);
           console.log('[CameraService] Video recorded at:', uri);
           onRecordingFinished(uri);
         },

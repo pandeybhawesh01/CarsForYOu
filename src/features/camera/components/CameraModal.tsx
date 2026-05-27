@@ -5,8 +5,9 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View, Image, Dimensions } from 'react-native';
+import { Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { vs } from '../../../utils/scaling';
@@ -21,6 +22,47 @@ import {
   type FlashMode,
 } from '../types';
 import { getNextFlashMode } from '../utils/cameraConfig';
+import {
+  doesMediaFileExist,
+  getMediaFilePath,
+  getMediaFileSize,
+  isValidMediaUri,
+  normalizeMediaUri,
+} from '../utils/mediaUtils';
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const buildVideoPreviewHtml = (videoUri: string) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <video controls playsinline webkit-playsinline src="${escapeHtml(encodeURI(videoUri))}"></video>
+  </body>
+</html>`;
 
 // ============================================================================
 // Component
@@ -33,6 +75,10 @@ const CameraModal: React.FC<CameraModalProps> = ({
   onCapture,
   onError,
 }) => {
+  const logPreview = useCallback((message: string, ...details: unknown[]) => {
+    console.log(`[CameraModal] ${message}`, ...details);
+  }, []);
+
   const cameraRef = useRef<any>(null);
   const recorderRef = useRef<Recorder | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -41,13 +87,12 @@ const CameraModal: React.FC<CameraModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
-
-  // Debug state changes
-  useEffect(() => {
-    if (capturedPhotoUri) {
-      console.log('[CameraModal] 📸 capturedPhotoUri state updated:', capturedPhotoUri);
-    }
-  }, [capturedPhotoUri]);
+  const [capturedVideoUri, setCapturedVideoUri] = useState<string | null>(null);
+  const [videoPreviewError, setVideoPreviewError] = useState<string | null>(null);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [videoFileError, setVideoFileError] = useState<string | null>(null);
+  const [isVideoFileReady, setIsVideoFileReady] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
 
   // Always use back camera for vehicle inspection
   const device = useCameraDevice('back');
@@ -66,9 +111,89 @@ const CameraModal: React.FC<CameraModalProps> = ({
     if (visible) {
       const info = `Device: ${device ? 'OK' : 'NULL'} | Camera Ref: ${cameraRef.current ? 'OK' : 'NULL'}`;
       setDebugInfo(info);
-      console.log('[CameraModal]', info);
+      logPreview(`Visible modal state: ${info}`);
     }
-  }, [visible, device]);
+  }, [visible, device, logPreview]);
+
+  useEffect(() => {
+    if (capturedVideoUri) {
+      logPreview('capturedVideoUri set', capturedVideoUri);
+      setVideoPreviewError(null);
+      setIsPreviewPlaying(false);
+    } else {
+      logPreview('capturedVideoUri cleared');
+      setVideoPreviewError(null);
+      setIsPreviewPlaying(false);
+    }
+  }, [capturedVideoUri, logPreview]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const checkVideoFile = async () => {
+      if (!capturedVideoUri) {
+        logPreview('Skipping video file check because capturedVideoUri is empty');
+        if (!isCancelled) {
+          setVideoFileError(null);
+          setIsVideoFileReady(false);
+        }
+        return;
+      }
+
+      const normalized = normalizeMediaUri(capturedVideoUri);
+      logPreview('Checking captured video file', {
+        capturedVideoUri,
+        normalized,
+      });
+      if (!isValidMediaUri(normalized)) {
+        logPreview('Captured video URI is invalid', normalized);
+        if (!isCancelled) {
+          setVideoFileError('Invalid video URI');
+          setIsVideoFileReady(false);
+        }
+        return;
+      }
+
+      try {
+        const exists = await doesMediaFileExist(normalized);
+        logPreview('Video file exists check result', { normalized, exists });
+        if (!exists) {
+          if (!isCancelled) {
+            setVideoFileError('Video file not found');
+            setIsVideoFileReady(false);
+          }
+          return;
+        }
+
+        const size = await getMediaFileSize(normalized);
+        logPreview('Video file size result', { normalized, size });
+        if (size <= 0) {
+          if (!isCancelled) {
+            setVideoFileError('Video file is empty');
+            setIsVideoFileReady(false);
+          }
+          return;
+        }
+
+        if (!isCancelled) {
+          setVideoFileError(null);
+          setIsVideoFileReady(true);
+        }
+      } catch (error) {
+        console.error('[CameraModal] Video file check failed:', error);
+        if (!isCancelled) {
+          setVideoFileError('Unable to read video file');
+          setIsVideoFileReady(false);
+        }
+      }
+    };
+
+    checkVideoFile();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [capturedVideoUri]);
 
   // --------------------------------------------------------------------------
   // Camera lifecycle
@@ -132,20 +257,30 @@ const CameraModal: React.FC<CameraModalProps> = ({
     }
 
     try {
-      const recorder = await videoOutput.createRecorder({});
+      // Vision Camera v5: createRecorder with fileType option
+      const filePath = getMediaFilePath('video');
+      const recorder = await videoOutput.createRecorder({
+        fileType: 'mp4',
+        filePath,
+      });
       recorderRef.current = recorder;
       setIsRecording(true);
+      setVideoPreviewError(null);
+      setIsPreviewPlaying(false);
 
       await CameraService.startRecording(
         recorder,
-        (uri) => {
-          // Recording finished successfully
+        (uri: string) => {
+          // Recording finished - show preview
           console.log('[CameraModal] Video recorded:', uri);
           setIsRecording(false);
-          onCapture(uri);
-          onClose();
+          setCapturedVideoUri(uri);
+          setVideoPreviewError(null);
+          setIsPreviewPlaying(false);
+          setVideoFileError(null);
+          setIsVideoFileReady(false);
         },
-        (err) => {
+        (err: CameraError) => {
           // Recording error
           console.error('[CameraModal] Recording error:', err);
           setIsRecording(false);
@@ -160,7 +295,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
       console.error('[CameraModal] Recording error:', cameraError);
       onError(cameraError);
     }
-  }, [isInitialized, onCapture, onClose, onError, videoOutput]);
+  }, [isInitialized, onError, videoOutput]);
 
   const handleStopRecording = useCallback(async () => {
     const recorder = recorderRef.current;
@@ -170,6 +305,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
       console.log('[CameraModal] Stopping video recording...');
       await CameraService.stopRecording(recorder);
       recorderRef.current = null;
+      // Video URI will be set via onRecordingFinished callback
     } catch (err) {
       const cameraError = CameraError.fromUnknown(err);
       setIsRecording(false);
@@ -189,6 +325,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
   useEffect(() => {
     if (!visible) {
+      setPermissionsGranted(false);
       return;
     }
 
@@ -199,17 +336,33 @@ const CameraModal: React.FC<CameraModalProps> = ({
     const requestPermissions = async () => {
       try {
         if (mode === 'photo') {
-          await PermissionService.requestCameraPermission();
+          const cameraStatus = await PermissionService.requestCameraPermission();
+          console.log('[CameraModal] Camera permission:', cameraStatus);
+          if (cameraStatus !== 'granted') {
+            throw new Error('Camera permission not granted');
+          }
+          setPermissionsGranted(true);
         } else {
-          // Request camera permission first, then microphone
-          // Sequential requests avoid timeout issues on Android
-          await PermissionService.requestCameraPermission();
-          await PermissionService.requestMicrophonePermission();
+          // For video mode: request camera first
+          const cameraStatus = await PermissionService.requestCameraPermission();
+          console.log('[CameraModal] Camera permission:', cameraStatus);
+          if (cameraStatus !== 'granted') {
+            throw new Error('Camera permission not granted');
+          }
+          
+          // Then request microphone
+          const micStatus = await PermissionService.requestMicrophonePermission();
+          console.log('[CameraModal] Microphone permission:', micStatus);
+          if (micStatus !== 'granted') {
+            throw new Error('Microphone permission not granted');
+          }
+          setPermissionsGranted(true);
         }
       } catch (err) {
         const cameraError = CameraError.fromUnknown(err);
         setErrorMessage(cameraError.userMessage);
-        console.error('[Camera Error] requestCameraPermission', cameraError);
+        console.error('[Camera Error] Permission request failed', cameraError);
+        setPermissionsGranted(false);
         onError(cameraError);
       }
     };
@@ -222,6 +375,11 @@ const CameraModal: React.FC<CameraModalProps> = ({
   // --------------------------------------------------------------------------
 
   const handleCancel = useCallback(async () => {
+    logPreview('Cancel pressed', {
+      isRecording,
+      hasRecorder: !!recorderRef.current,
+      capturedVideoUri,
+    });
     if (isRecording && recorderRef.current) {
       try {
         await CameraService.stopRecording(recorderRef.current);
@@ -232,9 +390,14 @@ const CameraModal: React.FC<CameraModalProps> = ({
       recorderRef.current = null;
     }
     setCapturedPhotoUri(null);
+    setCapturedVideoUri(null);
+    setIsPreviewPlaying(false);
+    setVideoPreviewError(null);
+    setVideoFileError(null);
+    setIsVideoFileReady(false);
     // Don't reset flash mode - keep user's preference
     onClose();
-  }, [isRecording, onClose]);
+  }, [capturedVideoUri, isRecording, logPreview, onClose]);
 
   const handleConfirmPhoto = useCallback(() => {
     if (capturedPhotoUri) {
@@ -248,6 +411,28 @@ const CameraModal: React.FC<CameraModalProps> = ({
     setCapturedPhotoUri(null);
     setErrorMessage(null);
   }, []);
+
+  const handleConfirmVideo = useCallback(() => {
+    if (capturedVideoUri) {
+      logPreview('Confirm video pressed', { capturedVideoUri });
+      setIsPreviewPlaying(false);
+      onCapture(capturedVideoUri);
+      setCapturedVideoUri(null);
+      setVideoFileError(null);
+      setIsVideoFileReady(false);
+      onClose();
+    }
+  }, [capturedVideoUri, logPreview, onCapture, onClose]);
+
+  const handleRetakeVideo = useCallback(() => {
+    logPreview('Retake video pressed', { capturedVideoUri });
+    setCapturedVideoUri(null);
+    setErrorMessage(null);
+    setVideoPreviewError(null);
+    setIsPreviewPlaying(false);
+    setVideoFileError(null);
+    setIsVideoFileReady(false);
+  }, [capturedVideoUri, logPreview]);
 
   // --------------------------------------------------------------------------
   // No camera device fallback
@@ -312,13 +497,86 @@ const CameraModal: React.FC<CameraModalProps> = ({
               </TouchableOpacity>
             </View>
           </SafeAreaView>
+        ) : capturedVideoUri ? (
+          <SafeAreaView style={styles.previewContainer} edges={['top', 'bottom']}>
+            {(() => {
+              const normalizedPreviewUri = normalizeMediaUri(capturedVideoUri);
+              const canRenderPreview =
+                isValidMediaUri(normalizedPreviewUri) &&
+                isVideoFileReady &&
+                !videoFileError &&
+                !videoPreviewError;
+
+              logPreview('Rendering preview branch', {
+                capturedVideoUri,
+                normalizedPreviewUri,
+                isVideoFileReady,
+                videoFileError,
+                videoPreviewError,
+                isPreviewPlaying,
+                canRenderPreview,
+              });
+
+              if (!canRenderPreview) {
+                logPreview('Showing video placeholder instead of player');
+                return (
+                  <View style={styles.videoPreviewPlaceholder}>
+                    <Text style={styles.videoPreviewIcon}>🎥</Text>
+                    <Text style={styles.videoPreviewText}>
+                      {videoFileError ?? videoPreviewError ?? 'Video recorded'}
+                    </Text>
+                    <Text style={styles.videoPreviewSubtext}>Ready to use</Text>
+                  </View>
+                );
+              }
+
+              return (
+                <View style={styles.previewVideoContainer}>
+                  <WebView
+                    style={styles.previewVideo}
+                    originWhitelist={['*']}
+                    source={{ html: buildVideoPreviewHtml(normalizedPreviewUri) }}
+                    javaScriptEnabled
+                    domStorageEnabled
+                    allowsInlineMediaPlayback
+                    mediaPlaybackRequiresUserAction={false}
+                    allowFileAccess
+                    allowFileAccessFromFileURLs
+                    allowUniversalAccessFromFileURLs
+                    onError={(event: any) => console.log('[CameraModal] preview WebView error', event.nativeEvent)}
+                  />
+                </View>
+              );
+            })()}
+            
+            {/* Preview Controls */}
+            <View style={styles.previewControls}>
+              <TouchableOpacity
+                style={styles.previewButton}
+                onPress={handleRetakeVideo}
+                accessibilityLabel="Retake video"
+                accessibilityRole="button">
+                <Text style={styles.previewButtonIcon}>↻</Text>
+                <Text style={styles.previewButtonText}>Retake</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.previewButton, styles.confirmButton]}
+                onPress={handleConfirmVideo}
+                accessibilityLabel="Use this video"
+                accessibilityRole="button">
+                <Text style={styles.confirmButtonIcon}>✓</Text>
+                <Text style={styles.confirmButtonText}>Use Video</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
         ) : (
           <>
-            {device && (
+            {device && permissionsGranted && (
               <CameraPreview
                 ref={cameraRef}
                 device={device}
-                isActive={visible}
+                isActive={visible && permissionsGranted}
                 mode={mode}
                 outputs={outputs}
                 onInitialized={handleInitialized}
@@ -335,6 +593,12 @@ const CameraModal: React.FC<CameraModalProps> = ({
                   onToggleFlash={handleToggleFlash}
                 />
               </CameraPreview>
+            )}
+
+            {!permissionsGranted && (
+              <View style={styles.permissionWaiting}>
+                <Text style={styles.permissionWaitingText}>loading...</Text>
+              </View>
             )}
 
             {/* Error overlay */}
@@ -417,6 +681,17 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     textAlign: 'center',
   },
+  permissionWaiting: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+  },
+  permissionWaitingText: {
+    color: colors.surface,
+    fontSize: typography.fontSize.base,
+    textAlign: 'center',
+  },
   previewContainer: {
     flex: 1,
     backgroundColor: '#000',
@@ -472,6 +747,53 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     color: colors.surface,
     fontWeight: typography.fontWeight.bold,
+  },
+  videoPreviewPlaceholder: {
+    flex: 1,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewVideoContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  previewVideo: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
+  previewPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  previewPlayButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewPlayIcon: {
+    fontSize: 28,
+    color: colors.surface,
+  },
+  videoPreviewIcon: {
+    fontSize: 80,
+    marginBottom: vs(16),
+  },
+  videoPreviewText: {
+    fontSize: typography.fontSize.xl,
+    color: colors.surface,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: vs(8),
+  },
+  videoPreviewSubtext: {
+    fontSize: typography.fontSize.base,
+    color: colors.surfaceSecondary,
   },
 });
 

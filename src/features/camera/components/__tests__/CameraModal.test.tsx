@@ -5,7 +5,10 @@ import CameraModal from '../CameraModal';
 jest.mock('../../services/CameraService', () => ({
   CameraService: {
     capturePhoto: jest.fn().mockResolvedValue('file://photo.jpg'),
-    startRecording: jest.fn().mockImplementation((ref, opts, onFinished) => onFinished('file://video.mp4')),
+    startRecording: jest.fn().mockImplementation((_recorder, onFinished) => {
+      onFinished('file://video.mp4');
+      return Promise.resolve();
+    }),
     stopRecording: jest.fn().mockResolvedValue(undefined),
   },
 }));
@@ -24,14 +27,19 @@ describe('CameraModal', () => {
 
     // Main action button should be accessible
     const main = root.findAllByProps({ accessibilityLabel: 'Capture photo' })[0];
-    await main.props.onPress();
+    await renderer.act(async () => {
+      await main.props.onPress();
+    });
+
+    const usePhoto = root.findAllByProps({ accessibilityLabel: 'Use this photo' })[0];
+    usePhoto.props.onPress();
 
     // onCapture and onClose should be called (capturePhoto resolves)
     expect(onCapture).toHaveBeenCalledWith('file://photo.jpg');
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('starts and finishes recording in video mode', () => {
+  it('starts recording and confirms video in video mode', async () => {
     const tree = renderer.create(
       <CameraModal visible={true} mode="video" onClose={onClose} onCapture={onCapture} onError={onError} />,
     );
@@ -39,7 +47,12 @@ describe('CameraModal', () => {
     const root = tree.root;
 
     const start = root.findAllByProps({ accessibilityLabel: 'Start recording' })[0];
-    start.props.onPress();
+    await renderer.act(async () => {
+      await start.props.onPress();
+    });
+
+    const useVideo = root.findAllByProps({ accessibilityLabel: 'Use this video' })[0];
+    useVideo.props.onPress();
 
     // startRecording triggers onFinished synchronously in mock
     expect(onCapture).toHaveBeenCalledWith('file://video.mp4');

@@ -3,25 +3,55 @@
  * Uses CameraModal for actual recording; shows video preview with playback controls
  */
 
-import React, { memo, useCallback, useState, useRef } from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  Modal,
-  Dimensions,
-  ActivityIndicator,
-} from 'react-native';
-import Video from 'react-native-video';
+import React, { memo, useCallback, useEffect, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
 import { vs } from '../../../utils/scaling';
 import CameraModal from '../../camera/components/CameraModal';
 import type { CameraError } from '../../camera/types';
+import {
+  doesMediaFileExist,
+  getMediaFileSize,
+  isValidMediaUri,
+  normalizeMediaUri,
+} from '../../camera/utils/mediaUtils';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const buildVideoPreviewHtml = (videoUri: string) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <video controls playsinline webkit-playsinline src="${escapeHtml(encodeURI(videoUri))}"></video>
+  </body>
+</html>`;
 
 // ============================================================================
 // Props (unchanged — backward compatible)
@@ -46,64 +76,154 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   isRequired = false,
   hint,
 }) => {
+  const logPreview = useCallback((message: string, ...details: unknown[]) => {
+    console.log(`[VideoCapture] ${message}`, ...details);
+  }, []);
+
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [videoLoadError, setVideoLoadError] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const videoRef = useRef<Video>(null);
+  const [videoFileError, setVideoFileError] = useState<string | null>(null);
 
   // --------------------------------------------------------------------------
   // Handlers
   // --------------------------------------------------------------------------
 
   const handleOpenCamera = useCallback(() => {
+    logPreview('Open camera pressed', { label, videoUri });
     setCameraError(null);
+    setIsPlaying(false);
     setIsCameraOpen(true);
-  }, []);
+  }, [label, logPreview, videoUri]);
 
   const handleRecordingSuccess = useCallback(
     (uri: string) => {
+      logPreview('Recording success', { label, uri });
       setIsCameraOpen(false);
+      setIsPlaying(false);
+      setVideoLoadError(false);
+      setVideoFileError(null);
       onCapture(uri);
     },
-    [onCapture],
+    [label, logPreview, onCapture],
   );
 
   const handleCameraClose = useCallback(() => {
+    logPreview('Camera modal closed', { label });
     setIsCameraOpen(false);
-  }, []);
+  }, [label, logPreview]);
 
   const handleCameraError = useCallback((err: CameraError) => {
+    console.error('[VideoCapture] Camera error:', err);
     setIsCameraOpen(false);
     setCameraError(err.userMessage);
   }, []);
 
   const handleEdit = useCallback(() => {
+    logPreview('Re-record pressed', { label, videoUri });
     onCapture('');
-  }, [onCapture]);
-
-  const handlePreview = useCallback(() => {
-    setIsPreviewOpen(true);
-    setIsPlaying(true);
-  }, []);
-
-  const handleClosePreview = useCallback(() => {
-    setIsPreviewOpen(false);
     setIsPlaying(false);
-  }, []);
+    setVideoLoadError(false);
+    setVideoFileError(null);
+  }, [label, logPreview, onCapture, videoUri]);
 
-  const handleVideoLoad = useCallback(() => {
-    setIsVideoLoading(false);
-  }, []);
+  const handleVideoError = useCallback((error: any) => {
+    console.error('[VideoCapture] Video load error:', error);
+    console.error('[VideoCapture] Video URI that failed:', videoUri);
+    setIsPlaying(false);
+    setVideoLoadError(true);
+  }, [videoUri]);
 
-  const handleVideoLoadStart = useCallback(() => {
-    setIsVideoLoading(true);
-  }, []);
+  useEffect(() => {
+    let isCancelled = false;
 
-  const handlePlayPause = useCallback(() => {
-    setIsPlaying(prev => !prev);
-  }, []);
+    const checkVideoFile = async () => {
+      if (!videoUri) {
+        logPreview('Skipping video file check because videoUri is empty', { label });
+        setVideoFileError(null);
+        return;
+      }
+
+      const normalized = normalizeMediaUri(videoUri);
+      logPreview('Checking video file', { label, videoUri, normalized });
+      if (!isValidMediaUri(normalized)) {
+        logPreview('Video URI is invalid', { label, normalized });
+        if (!isCancelled) {
+          setVideoFileError('Invalid video URI');
+        }
+        return;
+      }
+
+      try {
+        const exists = await doesMediaFileExist(normalized);
+        logPreview('Video file exists check result', { label, normalized, exists });
+        if (!exists) {
+          if (!isCancelled) {
+            setVideoFileError('Video file not found');
+          }
+          return;
+        }
+
+        const size = await getMediaFileSize(normalized);
+        logPreview('Video file size result', { label, normalized, size });
+        if (size <= 0) {
+          if (!isCancelled) {
+            setVideoFileError('Video file is empty');
+          }
+          return;
+        }
+
+        if (!isCancelled) {
+          setVideoFileError(null);
+        }
+      } catch (error) {
+        console.error('[VideoCapture] Video file check failed:', error);
+        if (!isCancelled) {
+          setVideoFileError('Unable to read video file');
+        }
+      }
+    };
+
+    checkVideoFile();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [videoUri]);
+
+  const normalizedVideoUri = videoUri ? normalizeMediaUri(videoUri) : '';
+  const canRenderVideo = Boolean(
+    videoUri &&
+    !videoLoadError &&
+    !videoFileError &&
+    isValidMediaUri(normalizedVideoUri),
+  );
+
+  useEffect(() => {
+    logPreview('Preview render state', {
+      label,
+      videoUri,
+      normalizedVideoUri,
+      canRenderVideo,
+      isPlaying,
+      videoLoadError,
+      videoFileError,
+      cameraError,
+    });
+  }, [
+    cameraError,
+    canRenderVideo,
+    label,
+    logPreview,
+    normalizedVideoUri,
+    isPlaying,
+    videoFileError,
+    videoLoadError,
+    videoUri,
+  ]);
+
+  const errorMessage = cameraError ?? videoFileError;
 
   // --------------------------------------------------------------------------
   // Render
@@ -120,43 +240,43 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
       {hint && <Text style={styles.hint}>{hint}</Text>}
 
       {/* Error message */}
-      {cameraError && (
+      {errorMessage && (
         <View
           style={styles.errorContainer}
           accessible
           accessibilityRole="alert">
-          <Text style={styles.errorText}>{cameraError}</Text>
+          <Text style={styles.errorText}>{errorMessage}</Text>
         </View>
       )}
 
       {/* Preview or record button */}
       {videoUri ? (
         <View style={styles.previewContainer}>
-          <TouchableOpacity
-            onPress={handlePreview}
-            style={styles.videoThumbnail}
-            activeOpacity={0.8}
-            accessibilityLabel="Preview recorded video"
-            accessibilityRole="button">
-            <Video
-              source={{ uri: videoUri }}
-              style={styles.thumbnailVideo}
-              resizeMode="cover"
-              paused={true}
-              muted={true}
-            />
-            <View style={styles.playOverlay}>
-              <Text style={styles.playIcon}>▶</Text>
+          {canRenderVideo ? (
+            <View style={styles.videoThumbnail}>
+              <WebView
+                style={styles.thumbnailVideo}
+                originWhitelist={['*']}
+                source={{ html: buildVideoPreviewHtml(normalizedVideoUri) }}
+                javaScriptEnabled
+                domStorageEnabled
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                allowFileAccess
+                allowFileAccessFromFileURLs
+                allowUniversalAccessFromFileURLs
+                onError={(event: any) => console.log('[VideoCapture] preview WebView error', event.nativeEvent)}
+              />
             </View>
-          </TouchableOpacity>
+          ) : (
+            <View style={styles.videoPlaceholder}>
+              <Text style={styles.videoPlaceholderIcon}>🎥</Text>
+              <Text style={styles.videoPlaceholderText}>
+                {videoFileError ?? (videoLoadError ? 'Video preview unavailable' : 'Video recorded')}
+              </Text>
+            </View>
+          )}
           <View style={styles.actionRow}>
-            <TouchableOpacity
-              onPress={handlePreview}
-              style={styles.actionButton}
-              accessibilityLabel="Preview video"
-              accessibilityRole="button">
-              <Text style={styles.actionText}>👁 Preview</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={handleEdit}
               style={styles.actionButton}
@@ -187,82 +307,6 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
         onCapture={handleRecordingSuccess}
         onError={handleCameraError}
       />
-
-      {/* Video preview modal */}
-      <Modal
-        visible={isPreviewOpen}
-        animationType="fade"
-        transparent={false}
-        onRequestClose={handleClosePreview}
-        statusBarTranslucent>
-        <View style={styles.previewModal}>
-          {/* Close button */}
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={handleClosePreview}
-            accessibilityLabel="Close video preview"
-            accessibilityRole="button">
-            <Text style={styles.closeButtonText}>✕</Text>
-          </TouchableOpacity>
-
-          {/* Video player */}
-          <View style={styles.videoContainer}>
-            {isVideoLoading && (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={colors.surface} />
-              </View>
-            )}
-            {videoUri && (
-              <Video
-                ref={videoRef}
-                source={{ uri: videoUri }}
-                style={styles.fullVideo}
-                resizeMode="contain"
-                paused={!isPlaying}
-                repeat={true}
-                onLoad={handleVideoLoad}
-                onLoadStart={handleVideoLoadStart}
-                controls={false}
-              />
-            )}
-          </View>
-
-          {/* Play/Pause button */}
-          <TouchableOpacity
-            style={styles.playPauseButton}
-            onPress={handlePlayPause}
-            accessibilityLabel={isPlaying ? 'Pause video' : 'Play video'}
-            accessibilityRole="button">
-            <Text style={styles.playPauseText}>
-              {isPlaying ? '⏸' : '▶'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Action buttons */}
-          <View style={styles.previewActions}>
-            <TouchableOpacity
-              style={styles.previewActionButton}
-              onPress={handleClosePreview}
-              accessibilityLabel="Keep this video"
-              accessibilityRole="button">
-              <Text style={styles.previewActionText}>✓ Keep Video</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.previewActionButton, styles.rerecordButton]}
-              onPress={() => {
-                handleClosePreview();
-                handleEdit();
-                setTimeout(() => handleOpenCamera(), 300);
-              }}
-              accessibilityLabel="Re-record video"
-              accessibilityRole="button">
-              <Text style={[styles.previewActionText, styles.rerecordText]}>
-                ↻ Re-record
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -332,30 +376,50 @@ const styles = StyleSheet.create({
   },
   videoThumbnail: {
     height: vs(160),
-    backgroundColor: '#000',
-    position: 'relative',
+    backgroundColor: colors.surfaceSecondary,
   },
   thumbnailVideo: {
-    width: '100%',
     height: '100%',
+    width: '100%',
+    backgroundColor: colors.surfaceSecondary,
+  },
+  videoPlaceholder: {
+    height: vs(160),
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlaceholderIcon: {
+    fontSize: 48,
+    marginBottom: vs(8),
+  },
+  videoPlaceholderText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: typography.fontWeight.medium,
   },
   playOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  playButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   playIcon: {
-    fontSize: 48,
+    fontSize: 22,
     color: colors.surface,
-    textShadowColor: 'rgba(0,0,0,0.75)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
   },
   actionRow: {
     flexDirection: 'row',
     padding: spacing.sm,
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -368,87 +432,6 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     color: colors.primary,
     fontWeight: typography.fontWeight.medium,
-  },
-  // Preview modal styles
-  previewModal: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 24,
-    color: colors.surface,
-    fontWeight: typography.fontWeight.bold,
-  },
-  videoContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fullVideo: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playPauseButton: {
-    position: 'absolute',
-    bottom: 120,
-    alignSelf: 'center',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playPauseText: {
-    fontSize: 28,
-    color: colors.surface,
-  },
-  previewActions: {
-    position: 'absolute',
-    bottom: 30,
-    left: 20,
-    right: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  previewActionButton: {
-    flex: 1,
-    marginHorizontal: spacing.xs,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-  },
-  rerecordButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1,
-    borderColor: colors.surface,
-  },
-  previewActionText: {
-    fontSize: typography.fontSize.base,
-    color: colors.surface,
-    fontWeight: typography.fontWeight.semiBold,
-  },
-  rerecordText: {
-    color: colors.surface,
   },
 });
 

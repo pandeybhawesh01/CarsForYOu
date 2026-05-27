@@ -7,5 +7,6 @@ module.exports = {
   moduleNameMapper: {
     'react-native-fs': '<rootDir>/__mocks__/react-native-fs.ts',
     'react-native-vision-camera': '<rootDir>/__mocks__/react-native-vision-camera.ts',
+    'react-native-video': '<rootDir>/__mocks__/react-native-video.ts',
   },
 };
