@@ -169,6 +169,10 @@ export interface CameraModalProps {
   onClose: () => void;
   onCapture: (uri: string) => void;
   onError: (error: CameraError) => void;
+  // S3 upload parameters (optional - if not provided, returns local URI)
+  uploadPath?: string;
+  sectionKey?: string;
+  appointmentId?: string;
 }
 
 export interface CameraControlsProps {

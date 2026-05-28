@@ -15,6 +15,7 @@ export interface CatalogOption {
   dataType: 'STRING' | 'BOOLEAN' | 'NUMBER';
   subOptions1: CatalogOption[];
   subOptions2?: CatalogOption[];
+  uploadPath?: string; // S3 upload path for file-upload options
 }
 
 // ─── Input descriptor (inside the `inputs` array on each node) ───────────────
@@ -32,6 +33,7 @@ export interface CatalogInput {
   dataType: 'STRING' | 'BOOLEAN' | 'NUMBER';
   allowsMultiple: boolean;
   options: CatalogOption[];
+  // uploadPath removed - now in CatalogOption
 }
 
 // ─── Field node (leaf — type: "field") ───────────────────────────────────────

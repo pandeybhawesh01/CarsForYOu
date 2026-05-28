@@ -8,7 +8,7 @@
  * Replaces Step1_BasicVerification through Step6_Media.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   ScrollView,
   View,
@@ -44,6 +44,7 @@ import type {
   CatalogSection,
 } from '../../../../services/api/types';
 import { getByPath, stripSectionPrefix } from '../../utils/nestedFormData';
+import { presignedUrlService } from '../../../../services/api/presignedUrlService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,8 @@ interface RenderHandlers {
   onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
   onGroupPress: (group: ActiveGroupNode) => void;
   onDirectCapture: (storageKey: string, uri: string) => void;
+  sectionKey: string;
+  appointmentId: string;
 }
 
 export interface DynamicInspectionStepProps {
@@ -118,6 +121,64 @@ function getInputs(node: CatalogNode): CatalogInput[] {
 
 function getChildren(node: CatalogNode): CatalogNode[] {
   return (node as CatalogGroup).children ?? [];
+}
+
+/**
+ * Extract all uploadPaths from a section's catalog tree.
+ * Mirrors the exact logic of renderNodes/renderSingleNode/renderInput.
+ */
+function extractUploadPaths(nodes: CatalogNode[]): string[] {
+  const paths: string[] = [];
+  
+  // Mirror renderSingleNode logic
+  function processNode(node: CatalogNode) {
+    // Get inputs from this node (same as renderSingleNode)
+    const inputs = getInputs(node);
+    const children = getChildren(node);
+    
+    // Process each input (same as renderInput)
+    for (const input of inputs) {
+      // Check for file-upload (same as renderInput)
+      if (input.inputType === 'file-upload') {
+        // Extract uploadPath from each option
+        for (const option of input.options) {
+          if (option.uploadPath) {
+            paths.push(option.uploadPath);
+          }
+        }
+      }
+      
+      // Check for select with file-upload subOptions (same as renderInput)
+      if (input.inputType === 'select') {
+        for (const option of input.options) {
+          const subOpts = option.subOptions1 ?? [];
+          for (const subOpt of subOpts) {
+            const subInputType = (subOpt as unknown as Record<string, string>).inputType;
+            if (subInputType === 'file-upload') {
+              const subUploadPath = (subOpt as unknown as Record<string, string>).uploadPath;
+              if (subUploadPath) {
+                paths.push(subUploadPath);
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Recursively process children (same as renderSingleNode)
+    if (children.length > 0) {
+      for (const child of children) {
+        processNode(child);
+      }
+    }
+  }
+  
+  // Process all nodes (same as renderNodes)
+  for (const node of nodes) {
+    processNode(node);
+  }
+  
+  return paths;
 }
 
 function collectIssueOptions(children: CatalogNode[]): string[] {
@@ -220,9 +281,8 @@ const csS = StyleSheet.create({
 });
 
 const GroupCard: React.FC<{ label: string; hasContent: boolean; onPress: () => void }> = ({ label, hasContent, onPress }) => {
-  console.log('[GroupCard] 🎴 Rendering card:', label, 'hasContent:', hasContent);
   return (
-    <TouchableOpacity style={gcS.card} onPress={() => { console.log('[GroupCard] 👆 Card tapped:', label); onPress(); }} activeOpacity={0.75} accessibilityRole="button">
+    <TouchableOpacity style={gcS.card} onPress={onPress} activeOpacity={0.75} accessibilityRole="button">
       <View style={gcS.iconWrap}>
         <Text style={gcS.icon}>📷</Text>
         {hasContent && <View style={gcS.dot} />}
@@ -268,14 +328,30 @@ function renderInput(
       // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
       const photoUrl = block?.photos?.[0]?.url;
       
-      console.log('[renderInput] 📸 Photo slot:', slotKey);
-      console.log('[renderInput] 📦 Block:', JSON.stringify(block, null, 2));
-      console.log('[renderInput]  Photo URL:', photoUrl);
-      
       if (String(opt.value).toLowerCase() === 'video') {
-        return <VideoCapture key={slotKey} label={slotLabel} videoUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />;
+        return (
+          <VideoCapture 
+            key={slotKey} 
+            label={slotLabel} 
+            videoUri={photoUrl} 
+            onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)}
+            uploadPath={opt.uploadPath}
+            sectionKey={handlers.sectionKey}
+            appointmentId={handlers.appointmentId}
+          />
+        );
       }
-      return <PhotoCapture key={slotKey} label={slotLabel} imageUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)} />;
+      return (
+        <PhotoCapture 
+          key={slotKey} 
+          label={slotLabel} 
+          imageUri={photoUrl} 
+          onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)}
+          uploadPath={opt.uploadPath}
+          sectionKey={handlers.sectionKey}
+          appointmentId={handlers.appointmentId}
+        />
+      );
     });
   }
 
@@ -366,10 +442,32 @@ function renderInput(
             // Extract URL from photo object: photos is always array of { url, capturedAt }
             // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
             const photoUrl = block?.photos?.[0]?.url;
+            // Get uploadPath from sub-option
+            const subUploadPath = (sub as unknown as Record<string, string>).uploadPath;
             if (String(sub.value).toLowerCase() === 'video') {
-              return <VideoCapture key={`${nodePath}-sub-${sIdx}`} label={subLabel} videoUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(subPath, uri)} />;
+              return (
+                <VideoCapture 
+                  key={`${nodePath}-sub-${sIdx}`} 
+                  label={subLabel} 
+                  videoUri={photoUrl} 
+                  onCapture={(uri) => handlers.onDirectCapture(subPath, uri)}
+                  uploadPath={subUploadPath}
+                  sectionKey={handlers.sectionKey}
+                  appointmentId={handlers.appointmentId}
+                />
+              );
             }
-            return <PhotoCapture key={`${nodePath}-sub-${sIdx}`} label={subLabel} imageUri={photoUrl} onCapture={(uri) => handlers.onDirectCapture(subPath, uri)} />;
+            return (
+              <PhotoCapture 
+                key={`${nodePath}-sub-${sIdx}`} 
+                label={subLabel} 
+                imageUri={photoUrl} 
+                onCapture={(uri) => handlers.onDirectCapture(subPath, uri)}
+                uploadPath={subUploadPath}
+                sectionKey={handlers.sectionKey}
+                appointmentId={handlers.appointmentId}
+              />
+            );
           }
           if (subInputType === 'multi-select') {
             const s2 = ((sub as unknown as Record<string, unknown[]>).subOptions2 ?? []).map((x) => ({ value: (x as Record<string, unknown>).value as string, label: (x as Record<string, unknown>).label as string, dataType: 'STRING' as const, subOptions1: [] }));
@@ -431,10 +529,8 @@ function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers, depth = 0):
 
 function renderSingleNode(node: CatalogNode, handlers: RenderHandlers, keyPrefix: string, depth = 0): React.ReactNode {
   if (isGroup(node)) {
-    console.log('[renderSingleNode] 📦 Group node:', node.label, 'depth:', depth, 'path:', node.path);
     if (depth >= 1) {
       // Nested group → tappable card
-      console.log('[renderSingleNode] 🎴 Rendering as GroupCard (depth >= 1)');
       const inputs = getInputs(node);
       const children = getChildren(node);
       const hasContent =
@@ -448,7 +544,6 @@ function renderSingleNode(node: CatalogNode, handlers: RenderHandlers, keyPrefix
       return <GroupCard key={`${keyPrefix}-card`} label={cleanLabel(node.label)} hasContent={hasContent} onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })} />;
     }
     // depth 0 → render inline
-    console.log('[renderSingleNode] 📋 Rendering inline (depth 0)');
     const inputs = getInputs(node);
     const children = getChildren(node);
     const issueOptions = collectIssueOptions(children);
@@ -503,6 +598,35 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
   const [activeSlot, setActiveSlot] = useState<ActivePhotoSlot | null>(null);
   const [activeGroupNode, setActiveGroupNode] = useState<ActiveGroupNode | null>(null);
 
+  // Prefetch presigned URLs for this section on mount
+  useEffect(() => {
+    const appointmentId = currentSession?.appointmentId;
+    if (!appointmentId) {
+      return;
+    }
+
+    // Extract all uploadPaths from this section
+    const uploadPaths = extractUploadPaths(section.children);
+    
+    if (uploadPaths.length === 0) {
+      return;
+    }
+
+    console.log('[DynamicStep] 🔄 Prefetching presigned URLs for section:', sectionKey);
+    console.log('[DynamicStep] 📋 Upload paths:', uploadPaths);
+
+    // Prefetch in background (don't block UI)
+    presignedUrlService
+      .getUrlsForSection(sectionKey, uploadPaths, appointmentId)
+      .then(() => {
+        console.log('[DynamicStep] ✅ Presigned URLs cached for section:', sectionKey);
+      })
+      .catch((error) => {
+        console.error('[DynamicStep] ❌ Failed to prefetch presigned URLs:', error);
+        // Don't block UI - will fetch on-demand when user captures
+      });
+  }, [section.children, sectionKey, currentSession?.appointmentId]);
+
   // All writes go to this section's key — no mapping needed
   const handleTextChange = useCallback(
     (path: string, value: string) => updateFormDataBySection(sectionKey, { [stripSectionPrefix(path)]: value }),
@@ -519,27 +643,20 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
   const handlePhotoSlotPress = useCallback((slot: ActivePhotoSlot) => setActiveSlot(slot), []);
   const handleCloseModal = useCallback(() => setActiveSlot(null), []);
   const handleGroupPress = useCallback((group: ActiveGroupNode) => {
-    console.log('[DynamicStep] 🔍 Group card pressed:', group.label);
-    console.log('[DynamicStep] 📦 Group node:', group.node.path);
     setActiveGroupNode(group);
   }, []);
   const handleCloseGroupModal = useCallback(() => setActiveGroupNode(null), []);
 
   const handleDirectCapture = useCallback(
     (storageKey: string, uri: string) => {
-      console.log('[DynamicStep] handleDirectCapture called');
-      console.log('[DynamicStep] storageKey:', storageKey);
-      console.log('[DynamicStep] uri:', uri);
-      
       // Format photo data to match backend structure: { url, capturedAt }
-      const photoData = uri ? [{ url: uri, capturedAt: new Date().toISOString() }] : [];
+      const photoData = uri ? [{ url: uri, capturedAt: Date.now() }] : [];
       const dataToSave = { 
         [stripSectionPrefix(storageKey)]: { 
           photos: photoData
         } 
       };
       
-      console.log('[DynamicStep] Saving data:', JSON.stringify(dataToSave, null, 2));
       updateFormDataBySection(sectionKey, dataToSave);
     },
     [updateFormDataBySection, sectionKey],
@@ -587,14 +704,24 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
       setActiveTabKey(mergedSections[currentSectionIndex + 1].key);
       return;
     }
-    console.log(`[DynamicStep] ✅ Section "${sectionLabel}" complete`);
     markStepCompleteByKey(sectionKey);
     onNext();
   }, [hasNextTab, currentSectionIndex, mergedSections, markStepCompleteByKey, sectionKey, sectionLabel, onNext]);
 
   const renderHandlers = useMemo<RenderHandlers>(
-    () => ({ formData, photoDetails, onTextChange: handleTextChange, onSelectChange: handleSelectChange, onMultiSelectChange: handleMultiSelectChange, onPhotoSlotPress: handlePhotoSlotPress, onGroupPress: handleGroupPress, onDirectCapture: handleDirectCapture }),
-    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress, handleGroupPress, handleDirectCapture],
+    () => ({ 
+      formData, 
+      photoDetails, 
+      onTextChange: handleTextChange, 
+      onSelectChange: handleSelectChange, 
+      onMultiSelectChange: handleMultiSelectChange, 
+      onPhotoSlotPress: handlePhotoSlotPress, 
+      onGroupPress: handleGroupPress, 
+      onDirectCapture: handleDirectCapture,
+      sectionKey,
+      appointmentId: currentSession?.appointmentId ?? '',
+    }),
+    [formData, photoDetails, handleTextChange, handleSelectChange, handleMultiSelectChange, handlePhotoSlotPress, handleGroupPress, handleDirectCapture, sectionKey, currentSession?.appointmentId],
   );
 
   const totalFilled = Object.values(filledPerSection).reduce((a, b) => a + b, 0);

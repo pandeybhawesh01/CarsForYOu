@@ -36,6 +36,8 @@ export const ENDPOINTS = {
   DRAFT_SAVE: `${API_BASE_URL}/forms/inspection-report/draft/submit`,
   /** Draft load (Redis). */
   DRAFT_LOAD: (appointmentId: string) => `${API_BASE_URL}/forms/inspection-report/draft/${appointmentId}`,
+  /** Presigned URL for S3 upload. */
+  PRESIGNED_UPLOAD: `${API_BASE_URL}/media/presign-upload`,
 } as const;
 
 // Log the API configuration on module load

@@ -283,10 +283,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "electricalsInteriors/Doors/frontLeftWindow/image"
                                         }
-                                    ],
-                                    "uploadPath": "electricalsInteriors/Doors/frontLeftWindow/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -337,10 +337,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "electricalsInteriors/Doors/frontRightWindow/image"
                                         }
-                                    ],
-                                    "uploadPath": "electricalsInteriors/Doors/frontRightWindow/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -648,10 +648,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineImage/batteryAlternator/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineImage/batteryAlternator/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -720,10 +720,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineImage/coolant/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineImage/coolant/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -786,10 +786,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineImage/engineOil/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineImage/engineOil/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -870,10 +870,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineImage/sump/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineImage/sump/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -928,10 +928,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/obdConnection/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/obdConnection/image"
+                                    ]
                                 }
                             ],
                             "children": []
@@ -952,10 +952,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/blowBy2000rpm/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/blowBy2000rpm/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1012,10 +1012,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/blowByIdle/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/blowByIdle/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1072,10 +1072,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/exhaustSmoke/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/exhaustSmoke/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1150,10 +1150,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/fuelInjector/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/fuelInjector/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1204,10 +1204,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/radiator/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/radiator/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1264,10 +1264,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engineSoundTest/turbocharger/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engineSoundTest/turbocharger/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1352,10 +1352,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engine/clutch/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engine/clutch/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1453,10 +1453,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engine/engineCondition/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engine/engineCondition/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1599,10 +1599,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engine/engineMounting/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engine/engineMounting/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1682,10 +1682,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "engineTransmission/engine/transmissionGearShifting/image"
                                         }
-                                    ],
-                                    "uploadPath": "engineTransmission/engine/transmissionGearShifting/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -1816,10 +1816,10 @@
                                     "value": "Image",
                                     "label": "Image",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "engineTransmission/roadTest/image"
                                 }
-                            ],
-                            "uploadPath": "engineTransmission/roadTest/image"
+                            ]
                         },
                         {
                             "inputType": "number",
@@ -1978,10 +1978,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/bootFloor/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/bootFloor/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -2124,10 +2124,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/frontBumper/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/frontBumper/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -2333,10 +2333,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsA_Pillar/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsA_Pillar/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -2560,10 +2560,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsB_Pillar/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsB_Pillar/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -2787,10 +2787,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsC_Pillar/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsC_Pillar/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -3014,10 +3014,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsFender/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsFender/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -3229,10 +3229,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsFrontDoor/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsFrontDoor/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -3456,10 +3456,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsQuarterPanel/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsQuarterPanel/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -3607,10 +3607,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsRearDoor/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsRearDoor/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -3834,10 +3834,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/lhsRunningBorder/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/lhsRunningBorder/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -3985,10 +3985,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rearBumper/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rearBumper/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -4194,10 +4194,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsA_Pillar/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsA_Pillar/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -4421,10 +4421,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsB_Pillar/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsB_Pillar/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -4648,10 +4648,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsC_Pillar/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsC_Pillar/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -4875,10 +4875,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsFender/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsFender/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -5090,10 +5090,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsFrontDoor/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsFrontDoor/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -5317,10 +5317,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsQuarterPanel/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsQuarterPanel/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -5468,10 +5468,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsRearDoor/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsRearDoor/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -5695,10 +5695,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/rhsRunningBorder/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/rhsRunningBorder/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -5846,10 +5846,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/bodyPanels/roof/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/bodyPanels/roof/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6065,10 +6065,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/frontWindshield/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/frontWindshield/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6196,10 +6196,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/lhsFogLight/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/lhsFogLight/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6339,10 +6339,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/lhsHeadlight/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/lhsHeadlight/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6482,10 +6482,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/lhsTailLight/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/lhsTailLight/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6625,10 +6625,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/rearWindshield/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/rearWindshield/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6779,10 +6779,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/rhsFogLight/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/rhsFogLight/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -6922,10 +6922,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/rhsHeadlight/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/rhsHeadlight/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -7065,10 +7065,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/lightsGlass/rhsTailLight/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/lightsGlass/rhsTailLight/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -7218,10 +7218,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/orvm/lhs/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/orvm/lhs/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -7341,10 +7341,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/orvm/rhs/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/orvm/rhs/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -7474,10 +7474,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/firewall/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/firewall/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -7664,10 +7664,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/headlightSupport/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/headlightSupport/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -7810,10 +7810,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/lhsApron/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/lhsApron/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8000,10 +8000,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/lowerCrossMember/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/lowerCrossMember/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8146,10 +8146,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/radiatorSupport/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/radiatorSupport/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8292,10 +8292,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/rhsApron/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/rhsApron/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8482,10 +8482,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/rhsApronLeg/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/rhsApronLeg/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8628,10 +8628,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/structure/upperCrossMember/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/structure/upperCrossMember/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8842,10 +8842,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/wheelsTyres/lhsFrontWheel/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/wheelsTyres/lhsFrontWheel/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -8961,10 +8961,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/wheelsTyres/lhsRearWheel/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/wheelsTyres/lhsRearWheel/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -9080,10 +9080,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/wheelsTyres/rhsFrontWheel/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/wheelsTyres/rhsFrontWheel/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -9199,10 +9199,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "exterior/wheelsTyres/rhsRearWheel/image"
                                         }
-                                    ],
-                                    "uploadPath": "exterior/wheelsTyres/rhsRearWheel/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -9355,10 +9355,10 @@
                                     "value": "Image",
                                     "label": "Image",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "steeringBrakes/brakes/image"
                                 }
-                            ],
-                            "uploadPath": "steeringBrakes/brakes/image"
+                            ]
                         }
                     ],
                     "children": [
@@ -9439,10 +9439,10 @@
                                     "value": "Image",
                                     "label": "Image",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "steeringBrakes/steering/image"
                                 }
-                            ],
-                            "uploadPath": "steeringBrakes/steering/image"
+                            ]
                         }
                     ],
                     "children": [
@@ -9529,10 +9529,10 @@
                                     "value": "Image",
                                     "label": "Image",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "steeringBrakes/suspension/image"
                                 }
-                            ],
-                            "uploadPath": "steeringBrakes/suspension/image"
+                            ]
                         }
                     ],
                     "children": [
@@ -9678,58 +9678,66 @@
                                     "value": "frontMain",
                                     "label": "Frontmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/frontmain"
                                 },
                                 {
                                     "value": "rearMain",
                                     "label": "Rearmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/rearmain"
                                 },
                                 {
                                     "value": "leftMain",
                                     "label": "Leftmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/leftmain"
                                 },
                                 {
                                     "value": "rightMain",
                                     "label": "Rightmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/rightmain"
                                 },
                                 {
                                     "value": "frontLhsMain",
                                     "label": "Frontlhsmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/frontlhsmain"
                                 },
                                 {
                                     "value": "frontRhsMain",
                                     "label": "Frontrhsmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/frontrhsmain"
                                 },
                                 {
                                     "value": "rearLhsMain",
                                     "label": "Rearlhsmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/rearlhsmain"
                                 },
                                 {
                                     "value": "rearRhsMain",
                                     "label": "Rearrhsmain",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/rearrhsmain"
                                 },
                                 {
                                     "value": "paintCoatingMeter",
                                     "label": "Paintcoatingmeter",
                                     "dataType": "STRING",
-                                    "subOptions1": []
+                                    "subOptions1": [],
+                                    "uploadPath": "vehicle/carImages/paintcoatingmeter"
                                 }
-                            ],
-                            "uploadPath": "vehicle/carImages/frontmain"
+                            ]
                         }
                     ],
                     "children": []
@@ -9821,10 +9829,10 @@
                                             "value": "Image",
                                             "label": "Image",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/chassisEmbossing/image"
                                         }
-                                    ],
-                                    "uploadPath": "vehicle/vehicleDetails/chassisEmbossing/image"
+                                    ]
                                 }
                             ],
                             "children": [
@@ -10079,52 +10087,59 @@
                                             "value": "rcFront",
                                             "label": "Rcfront",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/rcfront"
                                         },
                                         {
                                             "value": "rcBack",
                                             "label": "Rcback",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/rcback"
                                         },
                                         {
                                             "value": "ownerManual",
                                             "label": "Ownermanual",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/ownermanual"
                                         },
                                         {
                                             "value": "hypothecationProof",
                                             "label": "Hypothecationproof",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/hypothecationproof"
                                         },
                                         {
                                             "value": "addressProof",
                                             "label": "Addressproof",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/addressproof"
                                         },
                                         {
                                             "value": "cngPlate",
                                             "label": "Cngplate",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/cngplate"
                                         },
                                         {
                                             "value": "cngTestCertificate",
                                             "label": "Cngtestcertificate",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/cngtestcertificate"
                                         },
                                         {
                                             "value": "roadTaxDocument",
                                             "label": "Roadtaxdocument",
                                             "dataType": "STRING",
-                                            "subOptions1": []
+                                            "subOptions1": [],
+                                            "uploadPath": "vehicle/vehicleDetails/photos/roadtaxdocument"
                                         }
-                                    ],
-                                    "uploadPath": "vehicle/vehicleDetails/photos/rcfront"
+                                    ]
                                 }
                             ],
                             "children": []

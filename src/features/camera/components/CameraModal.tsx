@@ -5,7 +5,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { colors } from '../../../constants/colors';
@@ -29,6 +29,8 @@ import {
   isValidMediaUri,
   normalizeMediaUri,
 } from '../utils/mediaUtils';
+import { presignedUrlService } from '../../../services/api/presignedUrlService';
+import { uploadToS3, deleteLocalFile } from '../../../utils/s3Upload';
 
 const escapeHtml = (value: string) =>
   value
@@ -74,6 +76,9 @@ const CameraModal: React.FC<CameraModalProps> = ({
   onClose,
   onCapture,
   onError,
+  uploadPath,
+  sectionKey,
+  appointmentId,
 }) => {
   const logPreview = useCallback((message: string, ...details: unknown[]) => {
     console.log(`[CameraModal] ${message}`, ...details);
@@ -93,6 +98,26 @@ const CameraModal: React.FC<CameraModalProps> = ({
   const [videoFileError, setVideoFileError] = useState<string | null>(null);
   const [isVideoFileReady, setIsVideoFileReady] = useState(false);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
+  
+  // Upload state
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Check if upload is enabled
+  const shouldUpload = Boolean(uploadPath && sectionKey && appointmentId);
+
+  // Debug upload configuration
+  useEffect(() => {
+    if (visible) {
+      console.log('[CameraModal] 🔧 Upload config:', {
+        uploadPath,
+        sectionKey,
+        appointmentId,
+        shouldUpload,
+      });
+    }
+  }, [visible, uploadPath, sectionKey, appointmentId, shouldUpload]);
 
   // Always use back camera for vehicle inspection
   const device = useCameraDevice('back');
@@ -399,30 +424,133 @@ const CameraModal: React.FC<CameraModalProps> = ({
     onClose();
   }, [capturedVideoUri, isRecording, logPreview, onClose]);
 
-  const handleConfirmPhoto = useCallback(() => {
-    if (capturedPhotoUri) {
+  const handleConfirmPhoto = useCallback(async () => {
+    if (!capturedPhotoUri) return;
+
+    console.log('[CameraModal] 📸 Confirm photo pressed');
+    console.log('[CameraModal] 📋 Upload params:', {
+      uploadPath,
+      sectionKey,
+      appointmentId,
+      shouldUpload,
+    });
+
+    // If upload is not configured, return local URI directly
+    if (!shouldUpload) {
+      console.log('[CameraModal] ⚠️ No upload config, returning local URI');
       onCapture(capturedPhotoUri);
       setCapturedPhotoUri(null);
       onClose();
+      return;
     }
-  }, [capturedPhotoUri, onCapture, onClose]);
+
+    // Upload to S3
+    console.log('[CameraModal] 🚀 Starting S3 upload for photo');
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadError(null);
+
+    try {
+      logPreview('Starting S3 upload', { uploadPath, sectionKey, appointmentId });
+
+      // Get presigned URL
+      const { uploadUrl, fileUrl } = await presignedUrlService.getUrlForPath(
+        sectionKey!,
+        uploadPath!,
+        appointmentId!,
+      );
+
+      logPreview('Got presigned URL, uploading to S3');
+
+      // Upload to S3
+      await uploadToS3(capturedPhotoUri, uploadUrl, (progress) => {
+        setUploadProgress(progress.percentage);
+        logPreview('Upload progress:', progress.percentage + '%');
+      });
+
+      logPreview('Upload successful, deleting local file');
+
+      // Delete local file
+      await deleteLocalFile(capturedPhotoUri);
+
+      logPreview('Returning S3 URL:', fileUrl);
+
+      // Return S3 URL
+      onCapture(fileUrl);
+      setCapturedPhotoUri(null);
+      setIsUploading(false);
+      onClose();
+    } catch (error) {
+      console.error('[CameraModal] Upload failed:', error);
+      setIsUploading(false);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    }
+  }, [capturedPhotoUri, shouldUpload, uploadPath, sectionKey, appointmentId, onCapture, onClose, logPreview]);
 
   const handleRetakePhoto = useCallback(() => {
     setCapturedPhotoUri(null);
     setErrorMessage(null);
   }, []);
 
-  const handleConfirmVideo = useCallback(() => {
-    if (capturedVideoUri) {
-      logPreview('Confirm video pressed', { capturedVideoUri });
+  const handleConfirmVideo = useCallback(async () => {
+    if (!capturedVideoUri) return;
+
+    // If upload is not configured, return local URI directly
+    if (!shouldUpload) {
+      logPreview('No upload config, returning local URI');
       setIsPreviewPlaying(false);
       onCapture(capturedVideoUri);
       setCapturedVideoUri(null);
       setVideoFileError(null);
       setIsVideoFileReady(false);
       onClose();
+      return;
     }
-  }, [capturedVideoUri, logPreview, onCapture, onClose]);
+
+    // Upload to S3
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadError(null);
+
+    try {
+      logPreview('Starting S3 upload', { uploadPath, sectionKey, appointmentId });
+
+      // Get presigned URL
+      const { uploadUrl, fileUrl } = await presignedUrlService.getUrlForPath(
+        sectionKey!,
+        uploadPath!,
+        appointmentId!,
+      );
+
+      logPreview('Got presigned URL, uploading to S3');
+
+      // Upload to S3
+      await uploadToS3(capturedVideoUri, uploadUrl, (progress) => {
+        setUploadProgress(progress.percentage);
+        logPreview('Upload progress:', progress.percentage + '%');
+      });
+
+      logPreview('Upload successful, deleting local file');
+
+      // Delete local file
+      await deleteLocalFile(capturedVideoUri);
+
+      logPreview('Returning S3 URL:', fileUrl);
+
+      // Return S3 URL
+      setIsPreviewPlaying(false);
+      onCapture(fileUrl);
+      setCapturedVideoUri(null);
+      setVideoFileError(null);
+      setIsVideoFileReady(false);
+      setIsUploading(false);
+      onClose();
+    } catch (error) {
+      console.error('[CameraModal] Upload failed:', error);
+      setIsUploading(false);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    }
+  }, [capturedVideoUri, shouldUpload, uploadPath, sectionKey, appointmentId, logPreview, onCapture, onClose]);
 
   const handleRetakeVideo = useCallback(() => {
     logPreview('Retake video pressed', { capturedVideoUri });
@@ -481,6 +609,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
               <TouchableOpacity
                 style={styles.previewButton}
                 onPress={handleRetakePhoto}
+                disabled={isUploading}
                 accessibilityLabel="Retake photo"
                 accessibilityRole="button">
                 <Text style={styles.previewButtonIcon}>↻</Text>
@@ -490,12 +619,32 @@ const CameraModal: React.FC<CameraModalProps> = ({
               <TouchableOpacity
                 style={[styles.previewButton, styles.confirmButton]}
                 onPress={handleConfirmPhoto}
+                disabled={isUploading}
                 accessibilityLabel="Use this photo"
                 accessibilityRole="button">
-                <Text style={styles.confirmButtonIcon}>✓</Text>
-                <Text style={styles.confirmButtonText}>Use Photo</Text>
+                {isUploading ? (
+                  <>
+                    <ActivityIndicator color={colors.surface} size="small" />
+                    <Text style={styles.confirmButtonText}>Uploading... {uploadProgress}%</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.confirmButtonIcon}>✓</Text>
+                    <Text style={styles.confirmButtonText}>Use Photo</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
+            
+            {/* Upload Error */}
+            {uploadError && (
+              <View style={styles.uploadErrorContainer}>
+                <Text style={styles.uploadErrorText}>Upload failed: {uploadError}</Text>
+                <TouchableOpacity onPress={handleConfirmPhoto} style={styles.retryButton}>
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </SafeAreaView>
         ) : capturedVideoUri ? (
           <SafeAreaView style={styles.previewContainer} edges={['top', 'bottom']}>
@@ -554,6 +703,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
               <TouchableOpacity
                 style={styles.previewButton}
                 onPress={handleRetakeVideo}
+                disabled={isUploading}
                 accessibilityLabel="Retake video"
                 accessibilityRole="button">
                 <Text style={styles.previewButtonIcon}>↻</Text>
@@ -563,12 +713,32 @@ const CameraModal: React.FC<CameraModalProps> = ({
               <TouchableOpacity
                 style={[styles.previewButton, styles.confirmButton]}
                 onPress={handleConfirmVideo}
+                disabled={isUploading}
                 accessibilityLabel="Use this video"
                 accessibilityRole="button">
-                <Text style={styles.confirmButtonIcon}>✓</Text>
-                <Text style={styles.confirmButtonText}>Use Video</Text>
+                {isUploading ? (
+                  <>
+                    <ActivityIndicator color={colors.surface} size="small" />
+                    <Text style={styles.confirmButtonText}>Uploading... {uploadProgress}%</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.confirmButtonIcon}>✓</Text>
+                    <Text style={styles.confirmButtonText}>Use Video</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
+            
+            {/* Upload Error */}
+            {uploadError && (
+              <View style={styles.uploadErrorContainer}>
+                <Text style={styles.uploadErrorText}>Upload failed: {uploadError}</Text>
+                <TouchableOpacity onPress={handleConfirmVideo} style={styles.retryButton}>
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </SafeAreaView>
         ) : (
           <>
@@ -794,6 +964,35 @@ const styles = StyleSheet.create({
   videoPreviewSubtext: {
     fontSize: typography.fontSize.base,
     color: colors.surfaceSecondary,
+  },
+  uploadErrorContainer: {
+    position: 'absolute',
+    bottom: vs(120),
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(220, 38, 38, 0.9)',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  uploadErrorText: {
+    flex: 1,
+    color: colors.surface,
+    fontSize: typography.fontSize.sm,
+    marginRight: 12,
+  },
+  retryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.surface,
+    borderRadius: 6,
+  },
+  retryButtonText: {
+    color: '#DC2626',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semiBold,
   },
 });
 

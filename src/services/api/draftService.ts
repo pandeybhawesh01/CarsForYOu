@@ -30,20 +30,15 @@ export const draftService = {
    */
   async saveDraft(payload: DraftPayload): Promise<boolean> {
     try {
-      console.log('[DraftService] 💾 Auto-saving draft for appointment:', payload.appointmentId);
-      
       const response = await httpPost<DraftResponse>(ENDPOINTS.DRAFT_SAVE, payload);
       
       if (response.success) {
-        console.log('[DraftService] ✅ Draft saved successfully');
         return true;
       } else {
-        console.warn('[DraftService] ⚠️ Draft save returned success=false:', response.message);
         return false;
       }
     } catch (error) {
       // Non-blocking - log error but don't throw
-      console.error('[DraftService] ❌ Draft save failed:', error);
       return false;
     }
   },
@@ -90,11 +85,10 @@ export const draftService = {
    */
   async clearDraft(appointmentId: string): Promise<void> {
     try {
-      console.log('[DraftService] 🗑️ Clearing draft for appointment:', appointmentId);
       // If backend has a DELETE endpoint, call it here
       // For now, just log (backend can handle expiry)
     } catch (error) {
-      console.error('[DraftService] ❌ Draft clear failed:', error);
+      // Silent fail
     }
   },
 };

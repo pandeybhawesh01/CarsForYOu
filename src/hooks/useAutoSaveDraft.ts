@@ -38,9 +38,6 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
       return;
     }
 
-    console.log('[AutoSave] 🚀 Auto-save enabled for appointment:', session.appointmentId);
-    console.log('[AutoSave] 📌 Save on unmount:', saveOnUnmount ? 'YES (home/app close)' : 'NO (step navigation)');
-
     // Auto-save function
     const autoSave = async () => {
       try {
@@ -52,11 +49,8 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
         
         // Only save if data changed (debouncing)
         if (currentData === lastSavedDataRef.current) {
-          console.log('[AutoSave] ⏭️ No changes detected, skipping save');
           return;
         }
-        
-        console.log('[AutoSave] 💾 Data changed, saving draft...');
         
         // Save to Redis (transformed format - same as final submit)
         const success = await draftService.saveDraft({
@@ -67,10 +61,8 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
         
         if (success) {
           lastSavedDataRef.current = currentData;
-          console.log('[AutoSave] ✅ Draft saved successfully');
         }
       } catch (error) {
-        console.error('[AutoSave] ❌ Auto-save failed:', error);
         // Don't throw - auto-save is non-critical
       }
     };
@@ -93,14 +85,9 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
       
       // Only save on unmount if explicitly enabled (home screen or app close)
       if (saveOnUnmount) {
-        console.log('[AutoSave] 🔄 Saving before unmount (home/app close)...');
-        autoSave().then(() => {
-          console.log('[AutoSave] 🛑 Auto-save stopped');
-        }).catch((error) => {
-          console.error('[AutoSave] ❌ Final save failed:', error);
+        autoSave().catch(() => {
+          // Silent fail
         });
-      } else {
-        console.log('[AutoSave] 🛑 Auto-save stopped (no unmount save for step navigation)');
       }
     };
   }, [enabled, session, catalog, saveOnUnmount]);
@@ -110,8 +97,6 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
     if (!session) return;
     
     try {
-      console.log('[AutoSave] 💾 Manual save triggered');
-      
       // Save RAW formData (not transformed payload)
       await draftService.saveDraft({
         appointmentId: session.appointmentId,
@@ -120,9 +105,8 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
       });
       
       lastSavedDataRef.current = JSON.stringify(session.formData);
-      console.log('[AutoSave] ✅ Manual save completed');
     } catch (error) {
-      console.error('[AutoSave] ❌ Manual save failed:', error);
+      // Silent fail
     }
   };
 

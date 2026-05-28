@@ -92,9 +92,6 @@ export function buildFinalInspectionPayload(
   session: InspectionSession,
   catalog: NormalisedCatalog,
 ): Record<string, unknown> {
-  console.log('[PayloadBuilder] 🔧 Building final inspection payload...');
-  console.log('[PayloadBuilder] ℹ️ Data is already nested - applying type coercion only');
-
   const formData: AnyRecord = {};
 
   const sections = [
@@ -121,9 +118,6 @@ export function buildFinalInspectionPayload(
   if (session.formData.additionalImages && session.formData.additionalImages.length > 0) {
     formData.additionalImages = session.formData.additionalImages;
   }
-
-  console.log('[PayloadBuilder] ✅ Final payload built');
-  console.log('[PayloadBuilder] 📦 Payload sections:', Object.keys(formData));
 
   return {
     appointmentId: session.appointmentId,

@@ -29,6 +29,10 @@ interface PhotoCaptureProps {
   onCapture: (uri: string) => void;
   isRequired?: boolean;
   hint?: string;
+  // S3 upload parameters
+  uploadPath?: string;
+  sectionKey?: string;
+  appointmentId?: string;
 }
 
 // ============================================================================
@@ -41,6 +45,9 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
   onCapture,
   isRequired = false,
   hint,
+  uploadPath,
+  sectionKey,
+  appointmentId,
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -153,6 +160,9 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
         onClose={handleCameraClose}
         onCapture={handleCaptureSuccess}
         onError={handleCameraError}
+        uploadPath={uploadPath}
+        sectionKey={sectionKey}
+        appointmentId={appointmentId}
       />
     </View>
   );

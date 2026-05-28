@@ -63,6 +63,10 @@ interface VideoCaptureProps {
   onCapture: (uri: string) => void;
   isRequired?: boolean;
   hint?: string;
+  // S3 upload parameters
+  uploadPath?: string;
+  sectionKey?: string;
+  appointmentId?: string;
 }
 
 // ============================================================================
@@ -75,6 +79,9 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   onCapture,
   isRequired = false,
   hint,
+  uploadPath,
+  sectionKey,
+  appointmentId,
 }) => {
   const logPreview = useCallback((message: string, ...details: unknown[]) => {
     console.log(`[VideoCapture] ${message}`, ...details);
@@ -306,6 +313,9 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
         onClose={handleCameraClose}
         onCapture={handleRecordingSuccess}
         onError={handleCameraError}
+        uploadPath={uploadPath}
+        sectionKey={sectionKey}
+        appointmentId={appointmentId}
       />
     </View>
   );
