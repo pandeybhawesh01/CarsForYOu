@@ -9,6 +9,7 @@
 
 import { ENDPOINTS } from './endpoints';
 import { httpPost } from './httpClient';
+import { useCatalogViewModel } from '../../viewmodels/catalogViewModel';
 
 interface PresignedUrlResponse {
   success: boolean;
@@ -54,35 +55,36 @@ class PresignedUrlService {
     const now = Date.now();
 
     if (cached) {
-      // Check if all paths exist and none are expired
-      const allPathsValid = uploadPaths.every((path) => {
+      // Check if any URL is expired (all expire together)
+      const anyExpired = uploadPaths.some((path) => {
         const url = cached.urls[path];
-        if (!url) return false;
+        if (!url) return true; // Missing URL counts as expired
         
         const isExpired = now >= url.expiresAt;
         if (isExpired) {
           console.log('[PresignedUrlService] ⏰ URL expired for path:', path);
+          console.log('[PresignedUrlService] ⚠️ All URLs in section expired (same expiresAt)');
         }
-        return !isExpired;
+        return isExpired;
       });
 
-      if (allPathsValid) {
+      if (!anyExpired) {
         console.log('[PresignedUrlService] ✅ Cache hit! All URLs valid');
         return cached.urls;
       }
 
-      console.log('[PresignedUrlService] ⚠️ Cache invalid (missing or expired URLs), refetching...');
+      console.log('[PresignedUrlService] ⚠️ Refetching entire section (URLs expired)');
     } else {
       console.log('[PresignedUrlService] 🆕 No cache found, fetching...');
     }
 
-    // Fetch fresh URLs
+    // Fetch fresh URLs for entire section
     return await this.fetchPresignedUrls(sectionKey, uploadPaths, appointmentId);
   }
 
   /**
    * Get presigned URL for a single upload path.
-   * Fetches entire section if not cached.
+   * Checks expiry and refetches entire section if expired.
    */
   async getUrlForPath(
     sectionKey: string,
@@ -105,9 +107,25 @@ class PresignedUrlService {
       }
       
       console.log('[PresignedUrlService] ⏰ Cached URL expired for path:', uploadPath);
+      console.log('[PresignedUrlService] ⚠️ All URLs in section expired (same expiresAt)');
+      
+      // Get all paths for this section from catalog
+      const catalog = useCatalogViewModel.getState().catalog;
+      const allPathsInSection = catalog?.uploadPathsBySection?.[sectionKey];
+      
+      if (allPathsInSection && allPathsInSection.length > 0) {
+        console.log('[PresignedUrlService] 🔄 Refetching entire section:', allPathsInSection.length, 'paths');
+        const urls = await this.fetchPresignedUrls(sectionKey, allPathsInSection, appointmentId);
+        return urls[uploadPath];
+      } else {
+        // Fallback: fetch just this path if catalog not available
+        console.log('[PresignedUrlService] ⚠️ Catalog uploadPathsBySection not available, fetching single path as fallback');
+        const urls = await this.fetchPresignedUrls(sectionKey, [uploadPath], appointmentId);
+        return urls[uploadPath];
+      }
     }
 
-    // If not cached or expired, fetch just this path
+    // If not cached, fetch just this path
     console.log('[PresignedUrlService] 🆕 Fetching URL for single path');
     const urls = await this.fetchPresignedUrls(sectionKey, [uploadPath], appointmentId);
     return urls[uploadPath];

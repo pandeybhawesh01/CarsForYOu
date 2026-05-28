@@ -17,12 +17,7 @@ import AppButton from '../../../components/AppButton';
 import AppHeader from '../../../components/AppHeader';
 import { PHOTO_STATUS_ATTENTION, PHOTO_STATUS_GOOD } from '../utils/photoInspection';
 
-const STATUS_OPTIONS = [
-  { label: 'Good', value: PHOTO_STATUS_GOOD },
-  { label: 'Attention needed', value: PHOTO_STATUS_ATTENTION },
-] as const;
-
-export type InspectionImageDetailLayout = 'coolant' | 'photoFirstSubmit';
+export type InspectionImageDetailLayout = 'photoFirstSubmit';
 
 interface Props {
   title: string;
@@ -59,48 +54,34 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
     setDraft(value ?? {});
   }, [value, title, layout]);
 
-  const primaryPhoto = draft.photos?.[0];
+  const primaryPhoto = draft.photos?.[0]?.url;
+  const primaryPhotoCapturedAt = draft.photos?.[0]?.capturedAt;
   const issues = draft.issues ?? [];
   const status = draft.status;
 
   const setPatch = useCallback(
     (patch: Partial<PhotoIssueInspectionBlock>) => {
-      if (layout === 'coolant') {
-        onChange({ ...value, ...patch });
-        return;
-      }
       setDraft((prev) => ({ ...prev, ...patch }));
     },
-    [layout, onChange, value],
-  );
-
-  const setStatusCoolant = useCallback(
-    (s: string) => {
-      if (s === PHOTO_STATUS_GOOD) {
-        onChange({ ...value, status: s, issues: [] });
-      } else {
-        setPatch({ status: s });
-      }
-    },
-    [onChange, setPatch, value],
+    [],
   );
 
   const toggleIssue = useCallback(
     (issue: string) => {
-      const list = layout === 'coolant' ? value?.issues ?? [] : issues;
-      const next = list.includes(issue) ? list.filter((i) => i !== issue) : [...list, issue];
+      const next = issues.includes(issue) ? issues.filter((i) => i !== issue) : [...issues, issue];
       setPatch({ issues: next, status: PHOTO_STATUS_ATTENTION });
     },
-    [issues, layout, setPatch, value?.issues],
+    [issues, setPatch],
   );
 
   const onPhoto = useCallback(
-    (uri: string) => {
+    (uri: string, capturedAt?: string) => {
       if (!uri) {
         setPatch({ photos: [] });
         return;
       }
-      setPatch({ photos: [uri] });
+      const timestamp = capturedAt || new Date().toISOString();
+      setPatch({ photos: [{ url: uri, capturedAt: timestamp }] });
     },
     [setPatch],
   );
@@ -129,7 +110,7 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
     }
     const next: PhotoIssueInspectionBlock = {
       ...draft,
-      photos: primaryPhoto ? [primaryPhoto] : [],
+      photos: primaryPhoto && primaryPhotoCapturedAt ? [{ url: primaryPhoto, capturedAt: primaryPhotoCapturedAt }] : [],
     };
     if (issueOptions.length === 0 && !next.status) {
       next.status = PHOTO_STATUS_GOOD;
@@ -137,7 +118,7 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
     }
     onChange(next);
     onBack();
-  }, [canSubmitPhotoFirst, draft, issueOptions.length, onBack, onChange, primaryPhoto]);
+  }, [canSubmitPhotoFirst, draft, issueOptions.length, onBack, onChange, primaryPhoto, primaryPhotoCapturedAt]);
 
   const renderIssueChips = (list: string[], activeIssues: string[]) => (
     <View style={styles.issueWrap}>
@@ -156,47 +137,6 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
     </View>
   );
 
-  if (layout === 'coolant') {
-    const coolantIssues = value?.issues ?? [];
-    return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <AppHeader
-          title={title}
-          subtitle={subtitle}
-          onBack={onBack}
-          variant="white"
-        />
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled">
-
-          <Text style={styles.sectionLabel}>Status</Text>
-          <View style={styles.statusRow}>
-            {STATUS_OPTIONS.map((opt) => {
-              const active = status === opt.value;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.statusChip, active && styles.statusChipActive]}
-                  onPress={() => setStatusCoolant(opt.value)}
-                  activeOpacity={0.85}>
-                  <Text style={[styles.statusChipText, active && styles.statusChipTextActive]}>{opt.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <Text style={styles.sectionLabel}>Issues</Text>
-          <Text style={styles.hint}>Select all that apply (matches inspection schema).</Text>
-          {renderIssueChips([...issueOptions], coolantIssues)}
-
-          <PhotoCapture label={photoLabel} imageUri={value?.photos?.[0]} onCapture={onPhoto} />
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <AppHeader
@@ -210,7 +150,12 @@ const InspectionImageDetailPanel: React.FC<Props> = ({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
 
-        <PhotoCapture label={photoLabel} imageUri={primaryPhoto} onCapture={onPhoto} />
+        <PhotoCapture 
+          label={photoLabel} 
+          imageUri={primaryPhoto} 
+          capturedAt={primaryPhotoCapturedAt}
+          onCapture={onPhoto} 
+        />
 
         {issueOptions.length > 0 && (
           <>

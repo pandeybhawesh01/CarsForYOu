@@ -475,8 +475,9 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
       logPreview('Returning S3 URL:', fileUrl);
 
-      // Return S3 URL
-      onCapture(fileUrl);
+      // Return S3 URL with timestamp for cache busting
+      const capturedAt = new Date().toISOString();
+      onCapture(fileUrl, capturedAt);
       setCapturedPhotoUri(null);
       setIsUploading(false);
       onClose();
@@ -537,9 +538,10 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
       logPreview('Returning S3 URL:', fileUrl);
 
-      // Return S3 URL
+      // Return S3 URL with timestamp for cache busting
+      const capturedAt = new Date().toISOString();
       setIsPreviewPlaying(false);
-      onCapture(fileUrl);
+      onCapture(fileUrl, capturedAt);
       setCapturedVideoUri(null);
       setVideoFileError(null);
       setIsVideoFileReady(false);

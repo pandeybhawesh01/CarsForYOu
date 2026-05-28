@@ -1,6 +1,6 @@
 {
     "success": true,
-    "version": "v1.0.1",
+    "version": "1.2.3",
     "message": "Inspection options catalog retrieved successfully",
     "view": "tree",
     "sections": 6,
@@ -10218,5 +10218,102 @@
                 }
             ]
         }
-    ]
+    ],
+    "metadata": {
+        "uploadPathsBySection": {
+            "electricalsInteriors": [
+                "electricalsInteriors/Doors/frontLeftWindow/image",
+                "electricalsInteriors/Doors/frontRightWindow/image",
+                "electricalsInteriors/Accessories/musicSystem/isPresent/video",
+                "electricalsInteriors/Accessories/sunroof/isAvailable/image"
+            ],
+            "engineTransmission": [
+                "engineTransmission/engineImage/batteryAlternator/image",
+                "engineTransmission/engineImage/coolant/image",
+                "engineTransmission/engineImage/engineOil/image",
+                "engineTransmission/engineImage/sump/image",
+                "engineTransmission/engineSoundTest/obdConnection/image",
+                "engineTransmission/engineSoundTest/blowBy2000rpm/image",
+                "engineTransmission/engineSoundTest/blowByIdle/image",
+                "engineTransmission/engineSoundTest/exhaustSmoke/image",
+                "engineTransmission/engineSoundTest/fuelInjector/image",
+                "engineTransmission/engineSoundTest/radiator/image",
+                "engineTransmission/engineSoundTest/turbocharger/image",
+                "engineTransmission/engine/clutch/image",
+                "engineTransmission/engine/engineCondition/image",
+                "engineTransmission/engine/engineMounting/image",
+                "engineTransmission/engine/transmissionGearShifting/image",
+                "engineTransmission/roadTest/image"
+            ],
+            "exterior": [
+                "exterior/bodyPanels/bootFloor/image",
+                "exterior/bodyPanels/frontBumper/image",
+                "exterior/bodyPanels/lhsA_Pillar/image",
+                "exterior/bodyPanels/lhsB_Pillar/image",
+                "exterior/bodyPanels/lhsC_Pillar/image",
+                "exterior/bodyPanels/lhsFender/image",
+                "exterior/bodyPanels/lhsFrontDoor/image",
+                "exterior/bodyPanels/lhsQuarterPanel/image",
+                "exterior/bodyPanels/lhsRearDoor/image",
+                "exterior/bodyPanels/lhsRunningBorder/image",
+                "exterior/bodyPanels/rearBumper/image",
+                "exterior/bodyPanels/rhsA_Pillar/image",
+                "exterior/bodyPanels/rhsB_Pillar/image",
+                "exterior/bodyPanels/rhsC_Pillar/image",
+                "exterior/bodyPanels/rhsFender/image",
+                "exterior/bodyPanels/rhsFrontDoor/image",
+                "exterior/bodyPanels/rhsQuarterPanel/image",
+                "exterior/bodyPanels/rhsRearDoor/image",
+                "exterior/bodyPanels/rhsRunningBorder/image",
+                "exterior/bodyPanels/roof/image",
+                "exterior/lightsGlass/frontWindshield/image",
+                "exterior/lightsGlass/lhsFogLight/image",
+                "exterior/lightsGlass/lhsHeadlight/image",
+                "exterior/lightsGlass/lhsTailLight/image",
+                "exterior/lightsGlass/rearWindshield/image",
+                "exterior/lightsGlass/rhsFogLight/image",
+                "exterior/lightsGlass/rhsHeadlight/image",
+                "exterior/lightsGlass/rhsTailLight/image",
+                "exterior/orvm/lhs/image",
+                "exterior/orvm/rhs/image",
+                "exterior/structure/firewall/image",
+                "exterior/structure/headlightSupport/image",
+                "exterior/structure/lhsApron/image",
+                "exterior/structure/lowerCrossMember/image",
+                "exterior/structure/radiatorSupport/image",
+                "exterior/structure/rhsApron/image",
+                "exterior/structure/rhsApronLeg/image",
+                "exterior/structure/upperCrossMember/image",
+                "exterior/wheelsTyres/lhsFrontWheel/image",
+                "exterior/wheelsTyres/lhsRearWheel/image",
+                "exterior/wheelsTyres/rhsFrontWheel/image",
+                "exterior/wheelsTyres/rhsRearWheel/image"
+            ],
+            "steeringBrakes": [
+                "steeringBrakes/brakes/image",
+                "steeringBrakes/steering/image",
+                "steeringBrakes/suspension/image"
+            ],
+            "vehicle": [
+                "vehicle/carImages/frontmain",
+                "vehicle/carImages/rearmain",
+                "vehicle/carImages/leftmain",
+                "vehicle/carImages/rightmain",
+                "vehicle/carImages/frontlhsmain",
+                "vehicle/carImages/frontrhsmain",
+                "vehicle/carImages/rearlhsmain",
+                "vehicle/carImages/rearrhsmain",
+                "vehicle/carImages/paintcoatingmeter",
+                "vehicle/vehicleDetails/chassisEmbossing/image",
+                "vehicle/vehicleDetails/photos/rcfront",
+                "vehicle/vehicleDetails/photos/rcback",
+                "vehicle/vehicleDetails/photos/ownermanual",
+                "vehicle/vehicleDetails/photos/hypothecationproof",
+                "vehicle/vehicleDetails/photos/addressproof",
+                "vehicle/vehicleDetails/photos/cngplate",
+                "vehicle/vehicleDetails/photos/cngtestcertificate",
+                "vehicle/vehicleDetails/photos/roadtaxdocument"
+            ]
+        }
+    }
 }

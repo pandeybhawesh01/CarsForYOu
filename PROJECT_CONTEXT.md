@@ -69,10 +69,12 @@ Each catalog node contains:
 
 ### Adding a new section
 
-1. Add `{sectionKey}SectionChildren: CatalogNode[]` to `NormalisedCatalog` in `types.ts`
-2. Extract it in `catalogService.ts` `normalise()` function
-3. Add `{sectionKey}SectionChildren: []` to `FALLBACK_CATALOG` in `catalogViewModel.ts`
-4. Use `catalog.{sectionKey}SectionChildren` as `sectionNodes` in the step screen
+**Note:** With the fully dynamic catalog approach, sections are automatically added when the backend includes them in the catalog API response. No frontend code changes needed!
+
+If you need to add section-specific logic:
+1. Backend adds new section to catalog API
+2. Frontend automatically renders it via `DynamicInspectionStep`
+3. No code changes required - fully dynamic!
 
 ### Catalog service location
 `Cars24/src/services/api/catalogService.ts`

@@ -5,12 +5,16 @@
 
 import React, { memo, useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
+  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import ImageViewer from 'react-native-image-zoom-viewer';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
@@ -26,13 +30,14 @@ import { isValidMediaUri } from '../../camera/utils/mediaUtils';
 interface PhotoCaptureProps {
   label: string;
   imageUri?: string;
-  onCapture: (uri: string) => void;
+  onCapture: (uri: string, capturedAt?: string) => void;
   isRequired?: boolean;
   hint?: string;
   // S3 upload parameters
   uploadPath?: string;
   sectionKey?: string;
   appointmentId?: string;
+  capturedAt?: string; // Timestamp for cache busting
 }
 
 // ============================================================================
@@ -48,9 +53,12 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
   uploadPath,
   sectionKey,
   appointmentId,
+  capturedAt,
 }) => {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isImageLoading, setIsImageLoading] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // --------------------------------------------------------------------------
   // Handlers
@@ -84,11 +92,56 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
     onCapture('');
   }, [onCapture]);
 
+  const handleOpenPreview = useCallback(() => {
+    setIsPreviewOpen(true);
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+  }, []);
+
+  const handleDelete = useCallback(() => {
+    setIsPreviewOpen(false);
+    onCapture('');
+  }, [onCapture]);
+
+  const handleImageLoadStart = useCallback(() => {
+    setIsImageLoading(true);
+  }, []);
+
+  const handleImageLoadEnd = useCallback(() => {
+    setIsImageLoading(false);
+  }, []);
+
+  const handleImageError = useCallback(() => {
+    setIsImageLoading(false);
+    console.error('[PhotoCapture] Image load error:', imageUri);
+  }, [imageUri]);
+
+  // Add cache busting for S3 URLs to prevent stale image caching
+  const getCacheBustedUri = useCallback((uri: string | undefined) => {
+    if (!uri) return uri;
+    
+    // Only add cache buster for S3 URLs (remote images)
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      // Use capturedAt timestamp if available, otherwise use current time
+      const timestamp = capturedAt ? new Date(capturedAt).getTime() : Date.now();
+      const separator = uri.includes('?') ? '&' : '?';
+      return `${uri}${separator}_t=${timestamp}`;
+    }
+    
+    // Local file URIs don't need cache busting
+    return uri;
+  }, [capturedAt]);
+
+  const displayUri = getCacheBustedUri(imageUri);
+
   // Show actual image for any non-empty URI
   // Be more permissive to handle various URI formats from camera
   const showImage = Boolean(imageUri && typeof imageUri === 'string' && imageUri.length > 0);
 
   console.log('[PhotoCapture] Render - imageUri:', imageUri);
+  console.log('[PhotoCapture] Render - displayUri:', displayUri);
   console.log('[PhotoCapture] Render - showImage:', showImage);
 
   // --------------------------------------------------------------------------
@@ -117,13 +170,27 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
 
       {/* Preview or capture button */}
       {imageUri ? (
-        <View style={styles.previewContainer}>
+        <TouchableOpacity 
+          style={styles.previewContainer}
+          onPress={handleOpenPreview}
+          activeOpacity={0.8}>
           {showImage ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.imagePreview}
-              resizeMode="cover"
-            />
+            <>
+              <Image
+                source={{ uri: displayUri }}
+                style={styles.imagePreview}
+                resizeMode="cover"
+                onLoadStart={handleImageLoadStart}
+                onLoadEnd={handleImageLoadEnd}
+                onError={handleImageError}
+              />
+              {isImageLoading && (
+                <View style={styles.loadingOverlay}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              )}
+            </>
           ) : (
             <View style={styles.imagePlaceholder}>
               <Text style={styles.imagePlaceholderText}>📷</Text>
@@ -139,7 +206,7 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
             accessibilityRole="button">
             <Text style={styles.deleteIcon}>✕</Text>
           </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       ) : (
         <TouchableOpacity
           style={styles.captureButton}
@@ -164,6 +231,49 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
         sectionKey={sectionKey}
         appointmentId={appointmentId}
       />
+
+      {/* Full-size preview modal */}
+      <Modal
+        visible={isPreviewOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={handleClosePreview}>
+        <SafeAreaView style={styles.previewModalContainer} edges={['top', 'bottom']}>
+          <View style={styles.previewModalContent}>
+            {/* Full-size image with zoom */}
+            <ImageViewer
+              imageUrls={[{ url: displayUri || '' }]}
+              enableSwipeDown
+              onSwipeDown={handleClosePreview}
+              backgroundColor="rgba(0, 0, 0, 0.95)"
+              renderIndicator={() => null}
+              saveToLocalByLongPress={false}
+              style={styles.imageViewer}
+            />
+            
+            {/* Action buttons */}
+            <View style={styles.previewActions}>
+              <TouchableOpacity
+                style={[styles.previewActionButton, styles.deleteActionButton]}
+                onPress={handleDelete}
+                accessibilityLabel="Delete photo"
+                accessibilityRole="button">
+                <Text style={styles.previewActionIcon}>🗑️</Text>
+                <Text style={styles.previewActionText}>Delete</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.previewActionButton, styles.closeActionButton]}
+                onPress={handleClosePreview}
+                accessibilityLabel="Close preview"
+                accessibilityRole="button">
+                <Text style={styles.previewActionIcon}>✕</Text>
+                <Text style={styles.previewActionText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 };
@@ -267,6 +377,58 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.surface,
     fontWeight: typography.fontWeight.bold,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: vs(8),
+    fontSize: typography.fontSize.sm,
+    color: colors.primary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  previewModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+  },
+  previewModalContent: {
+    flex: 1,
+  },
+  imageViewer: {
+    flex: 1,
+  },
+  previewActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: vs(24),
+    gap: spacing.base,
+  },
+  previewActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: vs(16),
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+  },
+  deleteActionButton: {
+    backgroundColor: colors.error,
+  },
+  closeActionButton: {
+    backgroundColor: colors.textSecondary,
+  },
+  previewActionIcon: {
+    fontSize: 20,
+  },
+  previewActionText: {
+    fontSize: typography.fontSize.base,
+    color: colors.surface,
+    fontWeight: typography.fontWeight.semiBold,
   },
 });
 

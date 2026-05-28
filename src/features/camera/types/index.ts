@@ -167,7 +167,7 @@ export interface CameraModalProps {
   visible: boolean;
   mode: CameraMode;
   onClose: () => void;
-  onCapture: (uri: string) => void;
+  onCapture: (uri: string, capturedAt?: string) => void;
   onError: (error: CameraError) => void;
   // S3 upload parameters (optional - if not provided, returns local URI)
   uploadPath?: string;

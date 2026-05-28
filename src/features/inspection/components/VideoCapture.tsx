@@ -4,7 +4,16 @@
  */
 
 import React, { memo, useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
@@ -60,13 +69,14 @@ const buildVideoPreviewHtml = (videoUri: string) => `<!doctype html>
 interface VideoCaptureProps {
   label: string;
   videoUri?: string;
-  onCapture: (uri: string) => void;
+  onCapture: (uri: string, capturedAt?: string) => void;
   isRequired?: boolean;
   hint?: string;
   // S3 upload parameters
   uploadPath?: string;
   sectionKey?: string;
   appointmentId?: string;
+  capturedAt?: string; // Timestamp for cache busting
 }
 
 // ============================================================================
@@ -82,6 +92,7 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   uploadPath,
   sectionKey,
   appointmentId,
+  capturedAt,
 }) => {
   const logPreview = useCallback((message: string, ...details: unknown[]) => {
     console.log(`[VideoCapture] ${message}`, ...details);
@@ -92,6 +103,8 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   const [videoLoadError, setVideoLoadError] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoFileError, setVideoFileError] = useState<string | null>(null);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // --------------------------------------------------------------------------
   // Handlers
@@ -140,7 +153,48 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
     console.error('[VideoCapture] Video URI that failed:', videoUri);
     setIsPlaying(false);
     setVideoLoadError(true);
+    setIsVideoLoading(false);
   }, [videoUri]);
+
+  const handleOpenPreview = useCallback(() => {
+    setIsPreviewOpen(true);
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+  }, []);
+
+  const handleDelete = useCallback(() => {
+    setIsPreviewOpen(false);
+    onCapture('');
+    setIsPlaying(false);
+    setVideoLoadError(false);
+    setVideoFileError(null);
+  }, [onCapture]);
+
+  const handleVideoLoadStart = useCallback(() => {
+    setIsVideoLoading(true);
+  }, []);
+
+  const handleVideoLoadEnd = useCallback(() => {
+    setIsVideoLoading(false);
+  }, []);
+
+  // Add cache busting for S3 URLs to prevent stale video caching
+  const getCacheBustedUri = useCallback((uri: string) => {
+    if (!uri) return uri;
+    
+    // Only add cache buster for S3 URLs (remote videos)
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      // Use capturedAt timestamp if available, otherwise use current time
+      const timestamp = capturedAt ? new Date(capturedAt).getTime() : Date.now();
+      const separator = uri.includes('?') ? '&' : '?';
+      return `${uri}${separator}_t=${timestamp}`;
+    }
+    
+    // Local file URIs don't need cache busting
+    return uri;
+  }, [capturedAt]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -200,6 +254,7 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   }, [videoUri]);
 
   const normalizedVideoUri = videoUri ? normalizeMediaUri(videoUri) : '';
+  const displayUri = getCacheBustedUri(normalizedVideoUri);
   const canRenderVideo = Boolean(
     videoUri &&
     !videoLoadError &&
@@ -212,6 +267,7 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
       label,
       videoUri,
       normalizedVideoUri,
+      displayUri,
       canRenderVideo,
       isPlaying,
       videoLoadError,
@@ -221,6 +277,7 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   }, [
     cameraError,
     canRenderVideo,
+    displayUri,
     label,
     logPreview,
     normalizedVideoUri,
@@ -258,23 +315,46 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
 
       {/* Preview or record button */}
       {videoUri ? (
-        <View style={styles.previewContainer}>
+        <TouchableOpacity 
+          style={styles.previewContainer}
+          onPress={handleOpenPreview}
+          activeOpacity={0.8}>
           {canRenderVideo ? (
-            <View style={styles.videoThumbnail}>
-              <WebView
-                style={styles.thumbnailVideo}
-                originWhitelist={['*']}
-                source={{ html: buildVideoPreviewHtml(normalizedVideoUri) }}
-                javaScriptEnabled
-                domStorageEnabled
-                allowsInlineMediaPlayback
-                mediaPlaybackRequiresUserAction={false}
-                allowFileAccess
-                allowFileAccessFromFileURLs
-                allowUniversalAccessFromFileURLs
-                onError={(event: any) => console.log('[VideoCapture] preview WebView error', event.nativeEvent)}
-              />
-            </View>
+            <>
+              <View style={styles.videoThumbnail}>
+                <WebView
+                  style={styles.thumbnailVideo}
+                  originWhitelist={['*']}
+                  source={{ html: buildVideoPreviewHtml(displayUri) }}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  allowsInlineMediaPlayback
+                  mediaPlaybackRequiresUserAction={false}
+                  allowFileAccess
+                  allowFileAccessFromFileURLs
+                  allowUniversalAccessFromFileURLs
+                  mixedContentMode="always"
+                  onLoadStart={handleVideoLoadStart}
+                  onLoadEnd={handleVideoLoadEnd}
+                  onError={(event: any) => {
+                    console.log('[VideoCapture] preview WebView error', event.nativeEvent);
+                    handleVideoError(event.nativeEvent);
+                  }}
+                />
+                {/* Play button overlay */}
+                <View style={styles.playOverlay}>
+                  <View style={styles.playButton}>
+                    <Text style={styles.playIcon}>▶</Text>
+                  </View>
+                </View>
+              </View>
+              {isVideoLoading && (
+                <View style={styles.loadingOverlay}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              )}
+            </>
           ) : (
             <View style={styles.videoPlaceholder}>
               <Text style={styles.videoPlaceholderIcon}>🎥</Text>
@@ -283,16 +363,16 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
               </Text>
             </View>
           )}
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              onPress={handleEdit}
-              style={styles.actionButton}
-              accessibilityLabel="Re-record video"
-              accessibilityRole="button">
-              <Text style={styles.actionText}>↻ Re-record</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+          
+          {/* Delete button overlay */}
+          <TouchableOpacity
+            onPress={handleEdit}
+            style={styles.deleteButton}
+            accessibilityLabel="Delete video"
+            accessibilityRole="button">
+            <Text style={styles.deleteIcon}>✕</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
       ) : (
         <TouchableOpacity
           style={styles.captureButton}
@@ -317,6 +397,64 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
         sectionKey={sectionKey}
         appointmentId={appointmentId}
       />
+
+      {/* Full-size preview modal */}
+      <Modal
+        visible={isPreviewOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={handleClosePreview}>
+        <SafeAreaView style={styles.previewModalContainer} edges={['top', 'bottom']}>
+          <View style={styles.previewModalContent}>
+            {/* Full-size video player with zoom */}
+            <ScrollView
+              style={styles.videoScrollView}
+              contentContainerStyle={styles.videoScrollContent}
+              maximumZoomScale={2}
+              minimumZoomScale={1}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              bounces={false}>
+              <View style={styles.videoPlayerContainer}>
+                <WebView
+                  style={styles.fullSizeVideo}
+                  originWhitelist={['*']}
+                  source={{ html: buildVideoPreviewHtml(displayUri) }}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  allowsInlineMediaPlayback
+                  mediaPlaybackRequiresUserAction={false}
+                  allowFileAccess
+                  allowFileAccessFromFileURLs
+                  allowUniversalAccessFromFileURLs
+                  mixedContentMode="always"
+                />
+              </View>
+            </ScrollView>
+            
+            {/* Action buttons */}
+            <View style={styles.previewActions}>
+              <TouchableOpacity
+                style={[styles.previewActionButton, styles.deleteActionButton]}
+                onPress={handleDelete}
+                accessibilityLabel="Delete video"
+                accessibilityRole="button">
+                <Text style={styles.previewActionIcon}>🗑️</Text>
+                <Text style={styles.previewActionText}>Delete</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.previewActionButton, styles.closeActionButton]}
+                onPress={handleClosePreview}
+                accessibilityLabel="Close preview"
+                accessibilityRole="button">
+                <Text style={styles.previewActionIcon}>✕</Text>
+                <Text style={styles.previewActionText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 };
@@ -383,6 +521,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    position: 'relative',
   },
   videoThumbnail: {
     height: vs(160),
@@ -412,19 +551,26 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    pointerEvents: 'none',
   },
   playButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   playIcon: {
-    fontSize: 22,
-    color: colors.surface,
+    fontSize: 28,
+    color: colors.primary,
+    marginLeft: 4,
   },
   actionRow: {
     flexDirection: 'row',
@@ -442,6 +588,91 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     color: colors.primary,
     fontWeight: typography.fontWeight.medium,
+  },
+  deleteButton: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  deleteIcon: {
+    fontSize: 18,
+    color: colors.surface,
+    fontWeight: typography.fontWeight.bold,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: vs(8),
+    fontSize: typography.fontSize.sm,
+    color: colors.primary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  previewModalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+  },
+  previewModalContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  videoScrollView: {
+    flex: 1,
+  },
+  videoScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoPlayerContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
+  fullSizeVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  previewActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: vs(24),
+    gap: spacing.base,
+  },
+  previewActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: vs(16),
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+  },
+  deleteActionButton: {
+    backgroundColor: colors.error,
+  },
+  closeActionButton: {
+    backgroundColor: colors.textSecondary,
+  },
+  previewActionIcon: {
+    fontSize: 20,
+  },
+  previewActionText: {
+    fontSize: typography.fontSize.base,
+    color: colors.surface,
+    fontWeight: typography.fontWeight.semiBold,
   },
 });
 

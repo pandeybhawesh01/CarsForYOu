@@ -157,6 +157,7 @@ function normalise(raw: CatalogApiResponse): NormalisedCatalog {
 
   return {
     sections: raw.data,
+    uploadPathsBySection: raw.metadata?.uploadPathsBySection,
     optionsByPath: optionsMap,
     fieldsByPath: fieldsMap,
     vehicleSectionChildren,

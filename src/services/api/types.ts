@@ -90,6 +90,12 @@ export interface CatalogApiResponse {
   sections: number;
   version?: string; // ← Catalog version for cache invalidation (admin-controlled)
   data: CatalogSection[];
+  metadata?: {
+    uploadPathsBySection?: {
+      [sectionKey: string]: string[];
+    };
+    presignedUrlTTL?: number; // 55 minutes in milliseconds
+  };
 }
 
 // ─── Normalised catalog (what the ViewModel exposes to the UI) ───────────────
@@ -118,6 +124,10 @@ export interface NormalisedField {
 export interface NormalisedCatalog {
   /** Raw catalog sections from the API — used by DynamicInspectionStep */
   sections: CatalogSection[];
+  /** Upload paths by section from metadata */
+  uploadPathsBySection?: {
+    [sectionKey: string]: string[];
+  };
   optionsByPath: CatalogOptionsMap;
   fieldsByPath: Record<string, NormalisedField>;
   vehicleSectionChildren: CatalogNode[];

@@ -73,7 +73,7 @@ interface RenderHandlers {
   onMultiSelectChange: (path: string, values: string[]) => void;
   onPhotoSlotPress: (slot: ActivePhotoSlot) => void;
   onGroupPress: (group: ActiveGroupNode) => void;
-  onDirectCapture: (storageKey: string, uri: string) => void;
+  onDirectCapture: (storageKey: string, uri: string, capturedAt?: string) => void;
   sectionKey: string;
   appointmentId: string;
 }
@@ -121,64 +121,6 @@ function getInputs(node: CatalogNode): CatalogInput[] {
 
 function getChildren(node: CatalogNode): CatalogNode[] {
   return (node as CatalogGroup).children ?? [];
-}
-
-/**
- * Extract all uploadPaths from a section's catalog tree.
- * Mirrors the exact logic of renderNodes/renderSingleNode/renderInput.
- */
-function extractUploadPaths(nodes: CatalogNode[]): string[] {
-  const paths: string[] = [];
-  
-  // Mirror renderSingleNode logic
-  function processNode(node: CatalogNode) {
-    // Get inputs from this node (same as renderSingleNode)
-    const inputs = getInputs(node);
-    const children = getChildren(node);
-    
-    // Process each input (same as renderInput)
-    for (const input of inputs) {
-      // Check for file-upload (same as renderInput)
-      if (input.inputType === 'file-upload') {
-        // Extract uploadPath from each option
-        for (const option of input.options) {
-          if (option.uploadPath) {
-            paths.push(option.uploadPath);
-          }
-        }
-      }
-      
-      // Check for select with file-upload subOptions (same as renderInput)
-      if (input.inputType === 'select') {
-        for (const option of input.options) {
-          const subOpts = option.subOptions1 ?? [];
-          for (const subOpt of subOpts) {
-            const subInputType = (subOpt as unknown as Record<string, string>).inputType;
-            if (subInputType === 'file-upload') {
-              const subUploadPath = (subOpt as unknown as Record<string, string>).uploadPath;
-              if (subUploadPath) {
-                paths.push(subUploadPath);
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Recursively process children (same as renderSingleNode)
-    if (children.length > 0) {
-      for (const child of children) {
-        processNode(child);
-      }
-    }
-  }
-  
-  // Process all nodes (same as renderNodes)
-  for (const node of nodes) {
-    processNode(node);
-  }
-  
-  return paths;
 }
 
 function collectIssueOptions(children: CatalogNode[]): string[] {
@@ -324,9 +266,11 @@ function renderInput(
       const slotLabel = opt.label.toLowerCase() === 'image' ? label : cleanLabel(opt.label);
       // Use getByPath to access nested photo data
       const block = getByPath(handlers.formData, stripSectionPrefix(slotKey)) as PhotoIssueInspectionBlock | undefined;
-      // Extract URL from photo object: photos is always array of { url, capturedAt }
+      // Extract URL and capturedAt from photo object: photos is always array of { url, capturedAt }
       // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
       const photoUrl = block?.photos?.[0]?.url;
+      // @ts-ignore
+      const capturedAt = block?.photos?.[0]?.capturedAt;
       
       if (String(opt.value).toLowerCase() === 'video') {
         return (
@@ -334,10 +278,11 @@ function renderInput(
             key={slotKey} 
             label={slotLabel} 
             videoUri={photoUrl} 
-            onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)}
+            onCapture={(uri, timestamp) => handlers.onDirectCapture(slotKey, uri, timestamp)}
             uploadPath={opt.uploadPath}
             sectionKey={handlers.sectionKey}
             appointmentId={handlers.appointmentId}
+            capturedAt={capturedAt}
           />
         );
       }
@@ -346,10 +291,11 @@ function renderInput(
           key={slotKey} 
           label={slotLabel} 
           imageUri={photoUrl} 
-          onCapture={(uri) => handlers.onDirectCapture(slotKey, uri)}
+          onCapture={(uri, timestamp) => handlers.onDirectCapture(slotKey, uri, timestamp)}
           uploadPath={opt.uploadPath}
           sectionKey={handlers.sectionKey}
           appointmentId={handlers.appointmentId}
+          capturedAt={capturedAt}
         />
       );
     });
@@ -439,9 +385,11 @@ function renderInput(
           if (subInputType === 'file-upload') {
             // Use getByPath to access nested photo data
             const block = getByPath(handlers.formData, stripSectionPrefix(subPath)) as PhotoIssueInspectionBlock | undefined;
-            // Extract URL from photo object: photos is always array of { url, capturedAt }
+            // Extract URL and capturedAt from photo object: photos is always array of { url, capturedAt }
             // @ts-ignore - TypeScript cache issue with updated PhotoIssueInspectionBlock type
             const photoUrl = block?.photos?.[0]?.url;
+            // @ts-ignore
+            const capturedAt = block?.photos?.[0]?.capturedAt;
             // Get uploadPath from sub-option
             const subUploadPath = (sub as unknown as Record<string, string>).uploadPath;
             if (String(sub.value).toLowerCase() === 'video') {
@@ -450,10 +398,11 @@ function renderInput(
                   key={`${nodePath}-sub-${sIdx}`} 
                   label={subLabel} 
                   videoUri={photoUrl} 
-                  onCapture={(uri) => handlers.onDirectCapture(subPath, uri)}
+                  onCapture={(uri, timestamp) => handlers.onDirectCapture(subPath, uri, timestamp)}
                   uploadPath={subUploadPath}
                   sectionKey={handlers.sectionKey}
                   appointmentId={handlers.appointmentId}
+                  capturedAt={capturedAt}
                 />
               );
             }
@@ -462,10 +411,11 @@ function renderInput(
                 key={`${nodePath}-sub-${sIdx}`} 
                 label={subLabel} 
                 imageUri={photoUrl} 
-                onCapture={(uri) => handlers.onDirectCapture(subPath, uri)}
+                onCapture={(uri, timestamp) => handlers.onDirectCapture(subPath, uri, timestamp)}
                 uploadPath={subUploadPath}
                 sectionKey={handlers.sectionKey}
                 appointmentId={handlers.appointmentId}
+                capturedAt={capturedAt}
               />
             );
           }
@@ -582,6 +532,7 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
   const { currentSession, updateFormDataBySection, markStepCompleteByKey } = useInspectionStore();
   const loadingState = useCatalogViewModel((s) => s.loadingState);
   const loadCatalog = useCatalogViewModel((s) => s.loadCatalog);
+  const catalog = useCatalogViewModel((s) => s.catalog);
 
   const sectionKey = section.section; // e.g. "airConditioning", "vehicle"
   const sectionLabel = section.label; // e.g. "Air Conditioning"
@@ -605,15 +556,16 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
       return;
     }
 
-    // Extract all uploadPaths from this section
-    const uploadPaths = extractUploadPaths(section.children);
+    // Get upload paths from catalog metadata (no recursion needed!)
+    const uploadPaths = catalog.uploadPathsBySection?.[sectionKey] ?? [];
     
     if (uploadPaths.length === 0) {
+      console.log('[DynamicStep] ℹ️ No upload paths found for section:', sectionKey);
       return;
     }
 
     console.log('[DynamicStep] 🔄 Prefetching presigned URLs for section:', sectionKey);
-    console.log('[DynamicStep] 📋 Upload paths:', uploadPaths);
+    console.log('[DynamicStep] 📋 Upload paths from metadata:', uploadPaths.length, 'paths');
 
     // Prefetch in background (don't block UI)
     presignedUrlService
@@ -625,7 +577,7 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
         console.error('[DynamicStep] ❌ Failed to prefetch presigned URLs:', error);
         // Don't block UI - will fetch on-demand when user captures
       });
-  }, [section.children, sectionKey, currentSession?.appointmentId]);
+  }, [sectionKey, currentSession?.appointmentId, catalog.uploadPathsBySection]);
 
   // All writes go to this section's key — no mapping needed
   const handleTextChange = useCallback(
@@ -648,9 +600,11 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
   const handleCloseGroupModal = useCallback(() => setActiveGroupNode(null), []);
 
   const handleDirectCapture = useCallback(
-    (storageKey: string, uri: string) => {
+    (storageKey: string, uri: string, capturedAt?: string) => {
       // Format photo data to match backend structure: { url, capturedAt }
-      const photoData = uri ? [{ url: uri, capturedAt: Date.now() }] : [];
+      // Use provided capturedAt timestamp or generate new one
+      const timestamp = capturedAt || new Date().toISOString();
+      const photoData = uri ? [{ url: uri, capturedAt: timestamp }] : [];
       const dataToSave = { 
         [stripSectionPrefix(storageKey)]: { 
           photos: photoData
