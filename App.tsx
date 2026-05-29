@@ -9,6 +9,7 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { configureGoogleSignIn } from './src/services/auth';
 import { useCatalogViewModel } from './src/viewmodels/catalogViewModel';
+import { offlineQueue } from './src/services/offline/offlineQueue';
 
 /**
  * CatalogBootstrap — triggers catalog fetch the moment the app mounts.
@@ -35,12 +36,26 @@ const GoogleSignInConfig: React.FC = () => {
   return null;
 };
 
+/**
+ * OfflineQueueBootstrap — H-22.
+ * Starts the AppState listener so failed draft saves and submits drain
+ * automatically when the app foregrounds (or comes back from a stale state).
+ */
+const OfflineQueueBootstrap: React.FC = () => {
+  useEffect(() => {
+    offlineQueue.start();
+    return () => offlineQueue.stop();
+  }, []);
+  return null;
+};
+
 function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <GoogleSignInConfig />
         <CatalogBootstrap />
+        <OfflineQueueBootstrap />
         <RootNavigator />
       </AuthProvider>
     </SafeAreaProvider>

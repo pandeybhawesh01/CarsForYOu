@@ -212,9 +212,13 @@ export interface MediaData {
  * InspectionFormData - matches backend schema exactly
  * Each section stores its own data with photos inline.
  * Index signature allows dynamic section keys from the catalog API.
+ *
+ * The index signature is intentionally `unknown` so it can hold any value
+ * produced by the dynamic catalog (record, array, primitive). Specific
+ * sections still have explicit types below for the legacy hardcoded ones.
  */
 export interface InspectionFormData {
-  [sectionKey: string]: Record<string, unknown> | string[] | undefined;
+  [sectionKey: string]: unknown;
   vehicle: Record<string, unknown>;
   engineTransmission: Record<string, unknown>;
   airConditioning: Record<string, unknown>;

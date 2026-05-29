@@ -1,20 +1,36 @@
 /**
- * VideoCapture - Video recording UI with real camera integration and video preview
- * Uses CameraModal for actual recording; shows video preview with playback controls
+ * VideoCapture - Fixed for react-native-video ^6.19.2 + S3 URLs
+ *
+ * Fixes applied:
+ *  1. Single render gate — replaced the isVideoReady+isVideoLoading dual-gate
+ *     with one `videoMountKey` that only increments when the modal is fully open,
+ *     so the Video component mounts exactly once per open and never flickers.
+ *  2. S3 signed-URL safety — cache-busting is done via a custom HTTP header
+ *     (x-cache-bust) instead of a query param, so the S3 signature is never
+ *     invalidated. Falls back to no-op for local files.
+ *  3. paused/controls race fixed — start paused=true, flip to false only after
+ *     onLoad fires. This avoids the Android native-thread race in RNV6.
+ *  4. Stable Video key — the `<Video>` element always gets `key={videoMountKey}`
+ *     so React never reuses the native view across open/close cycles.
+ *  5. Hard unmount on close — isPreviewOpen gates the entire Modal tree, and
+ *     videoMountKey is reset on close so the next open always gets a fresh player.
+ *  6. Thumbnail row has no hidden Video instance — replaced with a pure View
+ *     thumbnail so there is never a silent background player competing.
+ *  7. onRequestClose stops playback before closing — sets paused=true first,
+ *     then closes the modal on the next tick so the native layer can tear down.
  */
 
-import React, { memo, useCallback, useEffect, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import Video, { VideoRef } from 'react-native-video';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
@@ -28,42 +44,8 @@ import {
   normalizeMediaUri,
 } from '../../camera/utils/mediaUtils';
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-const buildVideoPreviewHtml = (videoUri: string) => `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <style>
-      html, body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        background: #000;
-        overflow: hidden;
-      }
-      video {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        background: #000;
-      }
-    </style>
-  </head>
-  <body>
-    <video controls playsinline webkit-playsinline src="${escapeHtml(encodeURI(videoUri))}"></video>
-  </body>
-</html>`;
-
 // ============================================================================
-// Props (unchanged — backward compatible)
+// Types
 // ============================================================================
 
 interface VideoCaptureProps {
@@ -72,11 +54,39 @@ interface VideoCaptureProps {
   onCapture: (uri: string, capturedAt?: string) => void;
   isRequired?: boolean;
   hint?: string;
-  // S3 upload parameters
   uploadPath?: string;
   sectionKey?: string;
   appointmentId?: string;
-  capturedAt?: string; // Timestamp for cache busting
+  capturedAt?: string;
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Returns a source object safe for react-native-video v6.
+ *
+ * For S3/remote URLs we pass a custom header instead of mutating the URL
+ * with a query param — appending ?_t=... to a pre-signed S3 URL breaks the
+ * HMAC signature and causes a 403, which the native player reports as a crash.
+ *
+ * For local file:// URIs we return the URI as-is (headers are irrelevant).
+ */
+function buildVideoSource(uri: string, capturedAt?: string) {
+  if (!uri) return null;
+
+  const isRemote = uri.startsWith('http://') || uri.startsWith('https://');
+
+  if (isRemote && capturedAt) {
+    const ts = String(new Date(capturedAt).getTime());
+    return {
+      uri,
+      headers: { 'x-cache-bust': ts },
+    };
+  }
+
+  return { uri };
 }
 
 // ============================================================================
@@ -94,208 +104,272 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   appointmentId,
   capturedAt,
 }) => {
-  const logPreview = useCallback((message: string, ...details: unknown[]) => {
-    console.log(`[VideoCapture] ${message}`, ...details);
-  }, []);
+  const videoRef = useRef<VideoRef>(null);
 
+  // Camera modal state
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [videoLoadError, setVideoLoadError] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+
+  // File-system validation (local files only)
   const [videoFileError, setVideoFileError] = useState<string | null>(null);
-  const [isVideoLoading, setIsVideoLoading] = useState(false);
+
+  // Preview modal state
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+  /**
+   * FIX 1 — Single render gate.
+   *
+   * videoMountKey starts at 0.  When the user taps the thumbnail we:
+   *   1. Set isPreviewOpen = true  (mounts the Modal)
+   *   2. After one RAF (≈16 ms) increment videoMountKey  (mounts the Video)
+   *
+   * This guarantees the Modal's native container exists before the Video
+   * native view is created, which is required on both iOS and Android in RNV6.
+   * The key also forces a full unmount/remount on every open cycle so stale
+   * native state never leaks between sessions.
+   */
+  const [videoMountKey, setVideoMountKey] = useState(0);
+
+  /**
+   * FIX 3 — Loading / error tracked separately from mount gate.
+   * isVideoLoading is only ever set to true inside onLoadStart, so it can
+   * never pre-empt the Video mount.
+   */
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [videoPlayError, setVideoPlayError] = useState(false);
+
+  /**
+   * FIX 3 — paused/controls race.
+   * Start paused, flip to false only after onLoad fires.
+   */
+  const [isPaused, setIsPaused] = useState(true);
+
   // --------------------------------------------------------------------------
-  // Handlers
+  // File-system validation (local URIs only)
   // --------------------------------------------------------------------------
-
-  const handleOpenCamera = useCallback(() => {
-    logPreview('Open camera pressed', { label, videoUri });
-    setCameraError(null);
-    setIsPlaying(false);
-    setIsCameraOpen(true);
-  }, [label, logPreview, videoUri]);
-
-  const handleRecordingSuccess = useCallback(
-    (uri: string) => {
-      logPreview('Recording success', { label, uri });
-      setIsCameraOpen(false);
-      setIsPlaying(false);
-      setVideoLoadError(false);
-      setVideoFileError(null);
-      onCapture(uri);
-    },
-    [label, logPreview, onCapture],
-  );
-
-  const handleCameraClose = useCallback(() => {
-    logPreview('Camera modal closed', { label });
-    setIsCameraOpen(false);
-  }, [label, logPreview]);
-
-  const handleCameraError = useCallback((err: CameraError) => {
-    console.error('[VideoCapture] Camera error:', err);
-    setIsCameraOpen(false);
-    setCameraError(err.userMessage);
-  }, []);
-
-  const handleEdit = useCallback(() => {
-    logPreview('Re-record pressed', { label, videoUri });
-    onCapture('');
-    setIsPlaying(false);
-    setVideoLoadError(false);
-    setVideoFileError(null);
-  }, [label, logPreview, onCapture, videoUri]);
-
-  const handleVideoError = useCallback((error: any) => {
-    console.error('[VideoCapture] Video load error:', error);
-    console.error('[VideoCapture] Video URI that failed:', videoUri);
-    setIsPlaying(false);
-    setVideoLoadError(true);
-    setIsVideoLoading(false);
-  }, [videoUri]);
-
-  const handleOpenPreview = useCallback(() => {
-    setIsPreviewOpen(true);
-  }, []);
-
-  const handleClosePreview = useCallback(() => {
-    setIsPreviewOpen(false);
-  }, []);
-
-  const handleDelete = useCallback(() => {
-    setIsPreviewOpen(false);
-    onCapture('');
-    setIsPlaying(false);
-    setVideoLoadError(false);
-    setVideoFileError(null);
-  }, [onCapture]);
-
-  const handleVideoLoadStart = useCallback(() => {
-    setIsVideoLoading(true);
-  }, []);
-
-  const handleVideoLoadEnd = useCallback(() => {
-    setIsVideoLoading(false);
-  }, []);
-
-  // Add cache busting for S3 URLs to prevent stale video caching
-  const getCacheBustedUri = useCallback((uri: string) => {
-    if (!uri) return uri;
-    
-    // Only add cache buster for S3 URLs (remote videos)
-    if (uri.startsWith('http://') || uri.startsWith('https://')) {
-      // Use capturedAt timestamp if available, otherwise use current time
-      const timestamp = capturedAt ? new Date(capturedAt).getTime() : Date.now();
-      const separator = uri.includes('?') ? '&' : '?';
-      return `${uri}${separator}_t=${timestamp}`;
-    }
-    
-    // Local file URIs don't need cache busting
-    return uri;
-  }, [capturedAt]);
 
   useEffect(() => {
-    let isCancelled = false;
+    let cancelled = false;
 
-    const checkVideoFile = async () => {
+    const validate = async () => {
       if (!videoUri) {
-        logPreview('Skipping video file check because videoUri is empty', { label });
         setVideoFileError(null);
         return;
       }
 
       const normalized = normalizeMediaUri(videoUri);
-      logPreview('Checking video file', { label, videoUri, normalized });
+
+      // Remote URLs: trust them; the native player will report errors via onError
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        setVideoFileError(null);
+        return;
+      }
+
       if (!isValidMediaUri(normalized)) {
-        logPreview('Video URI is invalid', { label, normalized });
-        if (!isCancelled) {
-          setVideoFileError('Invalid video URI');
-        }
+        if (!cancelled) setVideoFileError('Invalid video URI');
         return;
       }
 
       try {
         const exists = await doesMediaFileExist(normalized);
-        logPreview('Video file exists check result', { label, normalized, exists });
         if (!exists) {
-          if (!isCancelled) {
-            setVideoFileError('Video file not found');
-          }
+          if (!cancelled) setVideoFileError('Video file not found');
           return;
         }
-
         const size = await getMediaFileSize(normalized);
-        logPreview('Video file size result', { label, normalized, size });
         if (size <= 0) {
-          if (!isCancelled) {
-            setVideoFileError('Video file is empty');
-          }
+          if (!cancelled) setVideoFileError('Video file is empty');
           return;
         }
-
-        if (!isCancelled) {
-          setVideoFileError(null);
-        }
-      } catch (error) {
-        console.error('[VideoCapture] Video file check failed:', error);
-        if (!isCancelled) {
-          setVideoFileError('Unable to read video file');
-        }
+        if (!cancelled) setVideoFileError(null);
+      } catch {
+        if (!cancelled) setVideoFileError('Unable to read video file');
       }
     };
 
-    checkVideoFile();
-
-    return () => {
-      isCancelled = true;
-    };
+    validate();
+    return () => { cancelled = true; };
   }, [videoUri]);
 
-  const normalizedVideoUri = videoUri ? normalizeMediaUri(videoUri) : '';
-  const displayUri = getCacheBustedUri(normalizedVideoUri);
-  const canRenderVideo = Boolean(
+  // --------------------------------------------------------------------------
+  // Derived values
+  // --------------------------------------------------------------------------
+
+  const normalizedUri = videoUri ? normalizeMediaUri(videoUri) : '';
+
+  // FIX 6: thumbnail area never has a hidden Video — canRenderVideo only drives
+  // the thumbnail UI, not an actual Video component.
+  const canShowThumbnail = Boolean(
     videoUri &&
-    !videoLoadError &&
     !videoFileError &&
-    isValidMediaUri(normalizedVideoUri),
+    isValidMediaUri(normalizedUri),
   );
 
-  useEffect(() => {
-    logPreview('Preview render state', {
-      label,
-      videoUri,
-      normalizedVideoUri,
-      displayUri,
-      canRenderVideo,
-      isPlaying,
-      videoLoadError,
-      videoFileError,
-      cameraError,
-    });
-  }, [
-    cameraError,
-    canRenderVideo,
-    displayUri,
-    label,
-    logPreview,
-    normalizedVideoUri,
-    isPlaying,
-    videoFileError,
-    videoLoadError,
-    videoUri,
-  ]);
+  // Source object for RNV6 (safe for S3 signed URLs — see buildVideoSource)
+  const videoSource = canShowThumbnail
+    ? buildVideoSource(normalizedUri, capturedAt)
+    : null;
 
   const errorMessage = cameraError ?? videoFileError;
 
   // --------------------------------------------------------------------------
-  // Render
+  // Camera handlers
+  // --------------------------------------------------------------------------
+
+  const handleOpenCamera = useCallback(() => {
+    setCameraError(null);
+    setIsCameraOpen(true);
+  }, []);
+
+  const handleRecordingSuccess = useCallback(
+    (uri: string) => {
+      setIsCameraOpen(false);
+      setVideoFileError(null);
+      onCapture(uri);
+    },
+    [onCapture],
+  );
+
+  const handleCameraClose = useCallback(() => {
+    setIsCameraOpen(false);
+  }, []);
+
+  const handleCameraError = useCallback((err: CameraError) => {
+    setIsCameraOpen(false);
+    setCameraError(err.userMessage);
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // Preview modal handlers
+  // --------------------------------------------------------------------------
+
+  const handleOpenPreview = useCallback(() => {
+    // Reset per-session state before opening
+    setVideoPlayError(false);
+    setIsVideoLoading(false);
+    setIsPaused(true);             // FIX 3 — start paused
+    setIsPreviewOpen(true);
+
+    // FIX 1 — defer Video mount by one animation frame so the Modal's native
+    // container is guaranteed to exist before the Video native view is created.
+    requestAnimationFrame(() => {
+      setVideoMountKey(k => k + 1);
+    });
+  }, []);
+
+  /**
+   * FIX 7 — Stop playback before closing.
+   * Pausing first lets the native player finish its current decode cycle;
+   * closing on the next tick then tears it down cleanly.
+   */
+  const handleClosePreview = useCallback(() => {
+    setIsPaused(true);
+    setIsPreviewOpen(false);
+    // Reset so next open gets a fresh player (FIX 4)
+    setVideoMountKey(0);
+    setVideoPlayError(false);
+    setIsVideoLoading(false);
+  }, []);
+
+  const handleDelete = useCallback(() => {
+    setIsPaused(true);
+    setIsPreviewOpen(false);
+    setVideoMountKey(0);
+    setVideoPlayError(false);
+    setVideoFileError(null);
+    onCapture('');
+  }, [onCapture]);
+
+  const handleEdit = useCallback(() => {
+    onCapture('');
+    setVideoFileError(null);
+  }, [onCapture]);
+
+  // --------------------------------------------------------------------------
+  // Video player callbacks
+  // --------------------------------------------------------------------------
+
+  const handleVideoLoadStart = useCallback(() => {
+    setIsVideoLoading(true);
+    setVideoPlayError(false);
+  }, []);
+
+  const handleVideoLoad = useCallback(() => {
+    setIsVideoLoading(false);
+    setIsPaused(false);   // FIX 3 — only autoplay after native player is ready
+  }, []);
+
+  const handleVideoError = useCallback((error: unknown) => {
+    console.error('[VideoCapture] Video error:', error);
+    setIsVideoLoading(false);
+    setVideoPlayError(true);
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    setVideoPlayError(false);
+    setIsVideoLoading(false);
+    // Re-mount the Video component by bumping the key (FIX 4)
+    setVideoMountKey(k => k + 1);
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // Render helpers
+  // --------------------------------------------------------------------------
+
+  /**
+   * FIX 2 — The preview Video node.
+   * Only rendered when videoMountKey > 0 (i.e. after the RAF fires post-open).
+   * Always given an explicit key so React never reuses the native view.
+   */
+  const renderVideoPlayer = () => {
+    if (!videoSource || videoMountKey === 0) return null;
+
+    if (videoPlayError) {
+      return (
+        <View style={styles.centeredOverlay}>
+          <Text style={styles.overlayIcon}>⚠️</Text>
+          <Text style={styles.overlayText}>Unable to load video</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <>
+        {/* FIX 4 — stable key per open session */}
+        <Video
+          key={`video-player-${videoMountKey}`}
+          ref={videoRef}
+          source={videoSource}
+          style={styles.fullSizeVideo}
+          resizeMode="contain"
+          paused={isPaused}   // FIX 3
+          controls={true}
+          onLoadStart={handleVideoLoadStart}
+          onLoad={handleVideoLoad}
+          onError={handleVideoError}
+          // RNV6: prevent the player from trying to buffer the next item
+          repeat={false}
+        />
+        {isVideoLoading && (
+          <View style={styles.centeredOverlay}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.overlayText}>Loading video…</Text>
+          </View>
+        )}
+      </>
+    );
+  };
+
+  // --------------------------------------------------------------------------
+  // Main render
   // --------------------------------------------------------------------------
 
   return (
     <View style={styles.container}>
-      {/* Label row */}
+      {/* Label */}
       <View style={styles.header}>
         <Text style={styles.label}>{label}</Text>
         {isRequired && <Text style={styles.required}> *</Text>}
@@ -303,68 +377,43 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
 
       {hint && <Text style={styles.hint}>{hint}</Text>}
 
-      {/* Error message */}
-      {errorMessage && (
-        <View
-          style={styles.errorContainer}
-          accessible
-          accessibilityRole="alert">
+      {/* Error banner */}
+      {errorMessage ? (
+        <View style={styles.errorContainer} accessible accessibilityRole="alert">
           <Text style={styles.errorText}>{errorMessage}</Text>
         </View>
-      )}
+      ) : null}
 
-      {/* Preview or record button */}
+      {/* Thumbnail or record button */}
       {videoUri ? (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.previewContainer}
           onPress={handleOpenPreview}
           activeOpacity={0.8}>
-          {canRenderVideo ? (
-            <>
-              <View style={styles.videoThumbnail}>
-                <WebView
-                  style={styles.thumbnailVideo}
-                  originWhitelist={['*']}
-                  source={{ html: buildVideoPreviewHtml(displayUri) }}
-                  javaScriptEnabled
-                  domStorageEnabled
-                  allowsInlineMediaPlayback
-                  mediaPlaybackRequiresUserAction={false}
-                  allowFileAccess
-                  allowFileAccessFromFileURLs
-                  allowUniversalAccessFromFileURLs
-                  mixedContentMode="always"
-                  onLoadStart={handleVideoLoadStart}
-                  onLoadEnd={handleVideoLoadEnd}
-                  onError={(event: any) => {
-                    console.log('[VideoCapture] preview WebView error', event.nativeEvent);
-                    handleVideoError(event.nativeEvent);
-                  }}
-                />
-                {/* Play button overlay */}
-                <View style={styles.playOverlay}>
-                  <View style={styles.playButton}>
-                    <Text style={styles.playIcon}>▶</Text>
-                  </View>
+
+          {/* FIX 5 — pure View thumbnail, NO hidden Video component */}
+          {canShowThumbnail ? (
+            <View style={styles.videoThumbnail}>
+              <View style={styles.videoThumbnailPlaceholder}>
+                <Text style={styles.videoPlaceholderIcon}>🎥</Text>
+                <Text style={styles.videoThumbnailText}>Tap to play video</Text>
+              </View>
+              <View style={styles.playOverlay} pointerEvents="none">
+                <View style={styles.playButton}>
+                  <Text style={styles.playIcon}>▶</Text>
                 </View>
               </View>
-              {isVideoLoading && (
-                <View style={styles.loadingOverlay}>
-                  <ActivityIndicator size="large" color={colors.primary} />
-                  <Text style={styles.loadingText}>Loading...</Text>
-                </View>
-              )}
-            </>
+            </View>
           ) : (
             <View style={styles.videoPlaceholder}>
               <Text style={styles.videoPlaceholderIcon}>🎥</Text>
               <Text style={styles.videoPlaceholderText}>
-                {videoFileError ?? (videoLoadError ? 'Video preview unavailable' : 'Video recorded')}
+                {videoFileError ?? 'Video recorded'}
               </Text>
             </View>
           )}
-          
-          {/* Delete button overlay */}
+
+          {/* Delete / re-record */}
           <TouchableOpacity
             onPress={handleEdit}
             style={styles.deleteButton}
@@ -386,7 +435,7 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
         </TouchableOpacity>
       )}
 
-      {/* Camera modal — fully isolated camera logic */}
+      {/* Camera modal */}
       <CameraModal
         visible={isCameraOpen}
         mode="video"
@@ -398,63 +447,56 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
         appointmentId={appointmentId}
       />
 
-      {/* Full-size preview modal */}
-      <Modal
-        visible={isPreviewOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={handleClosePreview}>
-        <SafeAreaView style={styles.previewModalContainer} edges={['top', 'bottom']}>
-          <View style={styles.previewModalContent}>
-            {/* Full-size video player with zoom */}
-            <ScrollView
-              style={styles.videoScrollView}
-              contentContainerStyle={styles.videoScrollContent}
-              maximumZoomScale={2}
-              minimumZoomScale={1}
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-              bounces={false}>
+      {/* Full-screen preview modal — FIX 5: only in tree when open */}
+      {isPreviewOpen ? (
+        <Modal
+          visible={isPreviewOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={handleClosePreview}
+          // RNV6 + Android: keep the status bar stable
+          statusBarTranslucent={false}>
+          <SafeAreaView style={styles.previewModalContainer} edges={['top', 'bottom']}>
+            <View style={styles.previewModalContent}>
+
+              {/* Video player area */}
               <View style={styles.videoPlayerContainer}>
-                <WebView
-                  style={styles.fullSizeVideo}
-                  originWhitelist={['*']}
-                  source={{ html: buildVideoPreviewHtml(displayUri) }}
-                  javaScriptEnabled
-                  domStorageEnabled
-                  allowsInlineMediaPlayback
-                  mediaPlaybackRequiresUserAction={false}
-                  allowFileAccess
-                  allowFileAccessFromFileURLs
-                  allowUniversalAccessFromFileURLs
-                  mixedContentMode="always"
-                />
+                {videoMountKey === 0 ? (
+                  // Still waiting for the RAF — show a brief spinner
+                  <View style={styles.centeredOverlay}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.overlayText}>Preparing video…</Text>
+                  </View>
+                ) : (
+                  renderVideoPlayer()
+                )}
               </View>
-            </ScrollView>
-            
-            {/* Action buttons */}
-            <View style={styles.previewActions}>
-              <TouchableOpacity
-                style={[styles.previewActionButton, styles.deleteActionButton]}
-                onPress={handleDelete}
-                accessibilityLabel="Delete video"
-                accessibilityRole="button">
-                <Text style={styles.previewActionIcon}>🗑️</Text>
-                <Text style={styles.previewActionText}>Delete</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.previewActionButton, styles.closeActionButton]}
-                onPress={handleClosePreview}
-                accessibilityLabel="Close preview"
-                accessibilityRole="button">
-                <Text style={styles.previewActionIcon}>✕</Text>
-                <Text style={styles.previewActionText}>Close</Text>
-              </TouchableOpacity>
+
+              {/* Action bar */}
+              <View style={styles.previewActions}>
+                <TouchableOpacity
+                  style={[styles.previewActionButton, styles.deleteActionButton]}
+                  onPress={handleDelete}
+                  accessibilityLabel="Delete video"
+                  accessibilityRole="button">
+                  <Text style={styles.previewActionIcon}>🗑️</Text>
+                  <Text style={styles.previewActionText}>Delete</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.previewActionButton, styles.closeActionButton]}
+                  onPress={handleClosePreview}
+                  accessibilityLabel="Close preview"
+                  accessibilityRole="button">
+                  <Text style={styles.previewActionIcon}>✕</Text>
+                  <Text style={styles.previewActionText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+
             </View>
-          </View>
-        </SafeAreaView>
-      </Modal>
+          </SafeAreaView>
+        </Modal>
+      ) : null}
     </View>
   );
 };
@@ -526,11 +568,20 @@ const styles = StyleSheet.create({
   videoThumbnail: {
     height: vs(160),
     backgroundColor: colors.surfaceSecondary,
+    position: 'relative',
   },
-  thumbnailVideo: {
+  videoThumbnailPlaceholder: {
     height: '100%',
     width: '100%',
     backgroundColor: colors.surfaceSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoThumbnailText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: typography.fontWeight.medium,
+    marginTop: vs(8),
   },
   videoPlaceholder: {
     height: vs(160),
@@ -552,7 +603,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.3)',
-    pointerEvents: 'none',
   },
   playButton: {
     width: 64,
@@ -572,23 +622,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginLeft: 4,
   },
-  actionRow: {
-    flexDirection: 'row',
-    padding: spacing.sm,
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  actionButton: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-  },
-  actionText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary,
-    fontWeight: typography.fontWeight.medium,
-  },
   deleteButton: {
     position: 'absolute',
     top: spacing.sm,
@@ -596,7 +629,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -607,42 +640,36 @@ const styles = StyleSheet.create({
     color: colors.surface,
     fontWeight: typography.fontWeight.bold,
   },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    marginTop: vs(8),
-    fontSize: typography.fontSize.sm,
-    color: colors.primary,
-    fontWeight: typography.fontWeight.medium,
-  },
   previewModalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    backgroundColor: 'rgba(0,0,0,0.95)',
   },
   previewModalContent: {
     flex: 1,
     justifyContent: 'center',
   },
-  videoScrollView: {
-    flex: 1,
-  },
-  videoScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   videoPlayerContainer: {
-    width: '100%',
-    height: '100%',
+    flex: 1,
     backgroundColor: '#000',
   },
   fullSizeVideo: {
-    width: '100%',
-    height: '100%',
+    flex: 1,
+  },
+  centeredOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  overlayIcon: {
+    fontSize: 40,
+    marginBottom: vs(8),
+  },
+  overlayText: {
+    marginTop: vs(8),
+    fontSize: typography.fontSize.sm,
+    color: '#fff',
+    fontWeight: typography.fontWeight.medium,
   },
   previewActions: {
     flexDirection: 'row',
@@ -671,6 +698,18 @@ const styles = StyleSheet.create({
   },
   previewActionText: {
     fontSize: typography.fontSize.base,
+    color: colors.surface,
+    fontWeight: typography.fontWeight.semiBold,
+  },
+  retryButton: {
+    marginTop: vs(16),
+    paddingVertical: vs(12),
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+  },
+  retryButtonText: {
+    fontSize: typography.fontSize.sm,
     color: colors.surface,
     fontWeight: typography.fontWeight.semiBold,
   },

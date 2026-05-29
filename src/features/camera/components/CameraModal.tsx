@@ -104,6 +104,18 @@ const CameraModal: React.FC<CameraModalProps> = ({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // C-10: track mount + in-flight upload so we can abort cleanly when modal closes.
+  const isMountedRef = useRef(true);
+  const uploadHandleRef = useRef<{ abort: () => void } | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      uploadHandleRef.current?.abort();
+      uploadHandleRef.current = null;
+    };
+  }, []);
+
   // Check if upload is enabled
   const shouldUpload = Boolean(uploadPath && sectionKey && appointmentId);
 
@@ -166,10 +178,24 @@ const CameraModal: React.FC<CameraModalProps> = ({
       }
 
       const normalized = normalizeMediaUri(capturedVideoUri);
-      logPreview('Checking captured video file', {
+      
+      // Skip file existence check for remote URLs (S3, HTTP, HTTPS)
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        logPreview('✅ Skipping file check for remote URL (S3)', { 
+          capturedVideoUri: capturedVideoUri.substring(0, 80) 
+        });
+        if (!isCancelled) {
+          setVideoFileError(null);
+          setIsVideoFileReady(true); // Remote URLs are always "ready"
+        }
+        return;
+      }
+      
+      logPreview('Checking local captured video file', {
         capturedVideoUri,
         normalized,
       });
+      
       if (!isValidMediaUri(normalized)) {
         logPreview('Captured video URI is invalid', normalized);
         if (!isCancelled) {
@@ -181,7 +207,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
       try {
         const exists = await doesMediaFileExist(normalized);
-        logPreview('Video file exists check result', { normalized, exists });
+        logPreview('Local video file exists check result', { normalized, exists });
         if (!exists) {
           if (!isCancelled) {
             setVideoFileError('Video file not found');
@@ -462,11 +488,15 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
       logPreview('Got presigned URL, uploading to S3');
 
-      // Upload to S3
-      await uploadToS3(capturedPhotoUri, uploadUrl, (progress) => {
+      // C-10: abortable upload. Tracked via ref so unmount can abort it.
+      const handle = uploadToS3(capturedPhotoUri, uploadUrl, (progress) => {
+        if (!isMountedRef.current) return;
         setUploadProgress(progress.percentage);
         logPreview('Upload progress:', progress.percentage + '%');
       });
+      uploadHandleRef.current = handle;
+      await handle.promise;
+      uploadHandleRef.current = null;
 
       logPreview('Upload successful, deleting local file');
 
@@ -474,6 +504,9 @@ const CameraModal: React.FC<CameraModalProps> = ({
       await deleteLocalFile(capturedPhotoUri);
 
       logPreview('Returning S3 URL:', fileUrl);
+
+      // Bail out cleanly if the modal was closed mid-upload.
+      if (!isMountedRef.current) return;
 
       // Return S3 URL with timestamp for cache busting
       const capturedAt = new Date().toISOString();
@@ -483,8 +516,13 @@ const CameraModal: React.FC<CameraModalProps> = ({
       onClose();
     } catch (error) {
       console.error('[CameraModal] Upload failed:', error);
+      uploadHandleRef.current = null;
+      if (!isMountedRef.current) return;
       setIsUploading(false);
-      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+      const msg = error instanceof Error ? error.message : 'Upload failed';
+      // Aborted uploads are not user-visible errors — just clear state.
+      if (msg === 'Upload aborted') return;
+      setUploadError(msg);
     }
   }, [capturedPhotoUri, shouldUpload, uploadPath, sectionKey, appointmentId, onCapture, onClose, logPreview]);
 
@@ -525,11 +563,15 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
       logPreview('Got presigned URL, uploading to S3');
 
-      // Upload to S3
-      await uploadToS3(capturedVideoUri, uploadUrl, (progress) => {
+      // C-10: abortable upload.
+      const handle = uploadToS3(capturedVideoUri, uploadUrl, (progress) => {
+        if (!isMountedRef.current) return;
         setUploadProgress(progress.percentage);
         logPreview('Upload progress:', progress.percentage + '%');
       });
+      uploadHandleRef.current = handle;
+      await handle.promise;
+      uploadHandleRef.current = null;
 
       logPreview('Upload successful, deleting local file');
 
@@ -537,6 +579,8 @@ const CameraModal: React.FC<CameraModalProps> = ({
       await deleteLocalFile(capturedVideoUri);
 
       logPreview('Returning S3 URL:', fileUrl);
+
+      if (!isMountedRef.current) return;
 
       // Return S3 URL with timestamp for cache busting
       const capturedAt = new Date().toISOString();
@@ -549,8 +593,12 @@ const CameraModal: React.FC<CameraModalProps> = ({
       onClose();
     } catch (error) {
       console.error('[CameraModal] Upload failed:', error);
+      uploadHandleRef.current = null;
+      if (!isMountedRef.current) return;
       setIsUploading(false);
-      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+      const msg = error instanceof Error ? error.message : 'Upload failed';
+      if (msg === 'Upload aborted') return;
+      setUploadError(msg);
     }
   }, [capturedVideoUri, shouldUpload, uploadPath, sectionKey, appointmentId, logPreview, onCapture, onClose]);
 

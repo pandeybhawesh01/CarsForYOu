@@ -10,6 +10,7 @@
 
 import { ENDPOINTS } from './endpoints';
 import { httpGet, httpPost } from './httpClient';
+import { offlineQueue } from '../offline/offlineQueue';
 
 export interface DraftPayload {
   appointmentId: string;
@@ -25,20 +26,24 @@ export interface DraftResponse {
 
 export const draftService = {
   /**
-   * Save draft to Redis (auto-save)
-   * Non-blocking - errors are logged but don't interrupt user flow
+   * Save draft to Redis (auto-save).
+   *
+   * H-22: on failure (network or non-2xx), the payload is enqueued in the
+   * offline queue so it gets retried when the app foregrounds. The function
+   * still returns false on the immediate attempt so the caller can update UI.
    */
   async saveDraft(payload: DraftPayload): Promise<boolean> {
     try {
       const response = await httpPost<DraftResponse>(ENDPOINTS.DRAFT_SAVE, payload);
-      
-      if (response.success) {
-        return true;
-      } else {
-        return false;
-      }
+      if (response.success) return true;
+
+      // Server replied but with success: false — enqueue for retry.
+      void offlineQueue.enqueue({ kind: 'draftSave', payload });
+      return false;
     } catch (error) {
-      // Non-blocking - log error but don't throw
+      // Network/timeout — enqueue for retry.
+      console.warn('[DraftService] saveDraft failed, enqueuing for retry:', error);
+      void offlineQueue.enqueue({ kind: 'draftSave', payload });
       return false;
     }
   },

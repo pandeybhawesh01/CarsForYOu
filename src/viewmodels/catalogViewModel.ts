@@ -18,6 +18,66 @@ import { create } from 'zustand';
 import { catalogService } from '../services/api/catalogService';
 import type { NormalisedCatalog } from '../services/api/types';
 
+// ─── Empty catalog default ───────────────────────────────────────────────────
+//
+// C-4 fix: many screens read `catalog.sections` / `catalog.uploadPathsBySection`
+// directly. Before catalog finishes loading, `catalog` was `null` and any
+// dereference crashed the app on cold start. We expose `selectCatalog` that
+// returns this frozen empty catalog when the real one isn't loaded yet, so
+// every consumer can safely access it.
+
+const EMPTY_CATALOG: NormalisedCatalog = Object.freeze({
+  sections: [],
+  uploadPathsBySection: {},
+  optionsByPath: {},
+  fieldsByPath: {},
+  vehicleSectionChildren: [],
+  engineTransmissionSectionChildren: [],
+  airConditioningSectionChildren: [],
+  steeringBrakesSectionChildren: [],
+  electricalsInteriorsSectionChildren: [],
+  exteriorSectionChildren: [],
+  airConditioning: {
+    acCompressorIssues: [],
+    acControlPanelIssues: [],
+    acCoolingIssues: [],
+    blowerMotorIssues: [],
+    ventilationSystemIssues: [],
+  },
+  engineTransmission: {
+    batteryAlternatorIssues: [],
+    blowBy2000rpmIssues: [],
+    blowByIdleIssues: [],
+    clutchIssues: [],
+    coolantIssues: [],
+    engineConditionIssues: [],
+    engineMountingIssues: [],
+    engineOilIssues: [],
+    exhaustSmokeIssues: [],
+    fuelInjectorIssues: [],
+    radiatorIssues: [],
+    runningConditionIssues: [],
+    sumpIssues: [],
+    transmissionGearShiftingIssues: [],
+    turbochargerAvailable: [],
+  },
+  steeringBrakes: {
+    brakesIssues: [],
+    steeringIssues: [],
+    suspensionIssues: [],
+  },
+  vehicle: {
+    leadTypes: [],
+    rcAvailabilityOptions: [],
+    rcConditionOptions: [],
+    fuelTypeOptions: [],
+    duplicateKeyOptions: [],
+  },
+  electricalInteriors: {
+    powerWindowsCountOptions: [],
+  },
+}) as NormalisedCatalog;
+
 // ─── State shape ──────────────────────────────────────────────────────────────
 
 type LoadingState = 'idle' | 'loading' | 'success' | 'error';
@@ -53,11 +113,19 @@ export const useCatalogViewModel = create<CatalogState>((set, get) => ({
 
     try {
       console.log('[CatalogViewModel] 🚀 Loading catalog...');
-      
-      // catalogService handles version-based caching
-      // It will check AsyncStorage, compare versions, and decide whether to use cache or fetch fresh
-      const catalog = await catalogService.fetchCatalog();
-      
+
+      // H-14: stale-while-revalidate. catalogService returns cached data
+      // immediately (if any) and runs the version check in the background.
+      // When the background revalidation finds a fresh version, it calls
+      // `onRevalidate(fresh)` and we swap state in-place so the UI updates
+      // without requiring another loadCatalog() round trip.
+      const catalog = await catalogService.fetchCatalog({
+        onRevalidate: (fresh) => {
+          console.log('[CatalogViewModel] 🔁 Background revalidation produced fresh catalog');
+          set({ catalog: fresh, loadingState: 'success', error: null });
+        },
+      });
+
       console.log('[CatalogViewModel] ✅ Catalog loaded successfully');
       set({ catalog, loadingState: 'success', error: null });
     } catch (err) {
@@ -98,7 +166,20 @@ export const useCatalogViewModel = create<CatalogState>((set, get) => ({
 
 // ─── Selector helpers (memoisation-friendly) ─────────────────────────────────
 
-/** Returns the catalog (null if not loaded). */
-export function selectCatalog(state: CatalogState): NormalisedCatalog | null {
+/**
+ * Returns the catalog. Falls back to `EMPTY_CATALOG` (frozen) if not loaded
+ * yet — so consumers can safely call `catalog.sections` without null-checking.
+ *
+ * If you need to know whether the catalog is *actually* loaded, read
+ * `loadingState === 'success'` separately, or call `selectCatalogOrNull`.
+ */
+export function selectCatalog(state: CatalogState): NormalisedCatalog {
+  return state.catalog ?? EMPTY_CATALOG;
+}
+
+/** Use when you specifically need to differentiate "loaded" vs "loading". */
+export function selectCatalogOrNull(state: CatalogState): NormalisedCatalog | null {
   return state.catalog;
 }
+
+export { EMPTY_CATALOG };

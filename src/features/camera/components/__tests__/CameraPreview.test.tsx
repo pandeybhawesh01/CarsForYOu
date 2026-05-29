@@ -10,7 +10,7 @@ const fakeDevice = {
 
 describe('CameraPreview', () => {
   it('shows loading overlay before started and children after started', () => {
-    const onStarted = jest.fn();
+    const onInitialized = jest.fn();
     const onError = jest.fn();
 
     const tree = renderer.create(
@@ -18,7 +18,7 @@ describe('CameraPreview', () => {
         device={fakeDevice as any}
         isActive={true}
         outputs={[]}
-        onStarted={onStarted}
+        onInitialized={onInitialized}
         onError={onError}
       >
         <React.Fragment>

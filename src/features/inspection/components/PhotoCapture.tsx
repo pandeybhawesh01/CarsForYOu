@@ -246,7 +246,7 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
               enableSwipeDown
               onSwipeDown={handleClosePreview}
               backgroundColor="rgba(0, 0, 0, 0.95)"
-              renderIndicator={() => null}
+              renderIndicator={(() => <></>) as never}
               saveToLocalByLongPress={false}
               style={styles.imageViewer}
             />

@@ -1,31 +1,15 @@
-import { Platform } from 'react-native';
-
 /**
- * API Endpoints — single source of truth for all backend URLs.
+ * API Endpoints — single source of truth for all backend URL paths.
  *
- * To change the base URL or API key, edit this file only.
- * In production, replace API_KEY with a value loaded from a secure
- * environment config (e.g. react-native-config or a .env file).
+ * Base URL and API key live in `appConfig.ts` (C-9 — sourced from env vars
+ * with explicit fallbacks). Editing this file is for adding new endpoints,
+ * not for rotating credentials.
  */
 
-const DEV_API_BASE_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:3000/api/v1'
-    : 'http://localhost:3000/api/v1';
+import { API_BASE_URL, API_KEY } from './appConfig';
 
-// FORCE LOCAL DEV SERVER - Use computer's IP for physical device
-export const API_BASE_URL = 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
-
-// Uncomment below to use local dev server instead:
-// export const API_BASE_URL = __DEV__
-//   ? DEV_API_BASE_URL
-//   : 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
-
-/**
- * ⚠️  HARDCODED KEY — replace with your real key or load from env.
- * See: Cars24/src/services/api/endpoints.ts → API_KEY
- */
-export const API_KEY = 'test';
+// Re-export for backwards compatibility with existing imports.
+export { API_BASE_URL, API_KEY };
 
 export const ENDPOINTS = {
   /** Inspection form catalog (all dropdown / multi-select options). */
@@ -40,7 +24,8 @@ export const ENDPOINTS = {
   PRESIGNED_UPLOAD: `${API_BASE_URL}/media/presign-upload`,
 } as const;
 
-// Log the API configuration on module load
-console.log('[API Config] 🌐 Base URL:', API_BASE_URL);
-console.log('[API Config] 📋 Catalog endpoint:', ENDPOINTS.INSPECTION_CATALOG);
-console.log('[API Config] 📤 Submit endpoint:', ENDPOINTS.INSPECTION_SUBMIT);
+if (__DEV__) {
+  console.log('[API Config] 🌐 Base URL:', API_BASE_URL);
+  console.log('[API Config] 📋 Catalog endpoint:', ENDPOINTS.INSPECTION_CATALOG);
+  console.log('[API Config] 📤 Submit endpoint:', ENDPOINTS.INSPECTION_SUBMIT);
+}

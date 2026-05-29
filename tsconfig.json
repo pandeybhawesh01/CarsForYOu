@@ -14,6 +14,11 @@
       "@services/*": ["src/services/*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", "src/features/inspection/screens/steps/catlouge.js", "src/features/inspection/screens/steps/exampleresponse.js"],
-  "exclude": ["**/node_modules", "**/Pods"]
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": [
+    "**/node_modules",
+    "**/Pods",
+    "src/features/inspection/screens/steps/catlouge.js",
+    "src/features/inspection/screens/steps/exampleresponse.js"
+  ]
 }

@@ -44,7 +44,7 @@ describe('PermissionService', () => {
   });
 
   it('openAppSettings calls Linking.openSettings', () => {
-    const openSpy = jest.spyOn(Linking, 'openSettings').mockImplementation(() => {});
+    const openSpy = jest.spyOn(Linking, 'openSettings').mockImplementation(() => Promise.resolve());
     // import after mocking
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { PermissionService } = require('../PermissionService');

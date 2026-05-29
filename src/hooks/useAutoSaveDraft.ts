@@ -19,17 +19,18 @@ const AUTO_SAVE_INTERVAL_MS = 10 * 1000; // 10 seconds
 
 interface UseAutoSaveDraftOptions {
   session: InspectionSession | null;
-  catalog: NormalisedCatalog;
-  enabled: boolean; // Only auto-save when inspection is active
-  saveOnUnmount?: boolean; // Save on unmount (only for home screen or app close)
+  catalog: NormalisedCatalog;        // never null — use selectCatalog at call site (C-4)
+  enabled: boolean;
+  saveOnUnmount?: boolean;
 }
 
 export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = false }: UseAutoSaveDraftOptions) {
   const lastSavedDataRef = useRef<string>('');
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!enabled || !session) {
+    // Skip if disabled, no session, or catalog hasn't loaded yet (sections empty)
+    if (!enabled || !session || catalog.sections.length === 0) {
       // Clear interval if disabled or no session
       if (intervalRef.current) {
         clearInterval(intervalRef.current);

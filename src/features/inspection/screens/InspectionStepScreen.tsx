@@ -22,7 +22,8 @@ type Props = InspectionStackScreenProps<'InspectionStep'>;
 
 const InspectionStepScreen: React.FC<Props> = ({ navigation, route }) => {
   const { stepIndex, inspectionId } = route.params;
-  const { currentSession } = useInspectionStore();
+  // C-1: scoped selector
+  const currentSession = useInspectionStore((s) => s.currentSession);
   const catalog = useCatalogViewModel(selectCatalog);
   const loadingState = useCatalogViewModel((s) => s.loadingState);
 

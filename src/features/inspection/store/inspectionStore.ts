@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { InspectionLead, InspectionSession, InspectionFormData } from '../types';
-import { InspectionStepId, InspectionStatus } from '../types';
+import type { InspectionLead, InspectionSession } from '../types';
+import { InspectionStatus } from '../types';
 import { createEmptySession } from '../../../services/mockData';
 import { draftService } from '../../../services/api/draftService';
+import { presignedUrlService } from '../../../services/api/presignedUrlService';
 import { setByPath } from '../utils/nestedFormData';
 
 interface InspectionState {
@@ -15,20 +16,10 @@ interface InspectionState {
 interface InspectionActions {
   setCurrentLead: (lead: InspectionLead, catalogSections: Array<{ section: string; label: string }>) => void;
   startInspection: (lead: InspectionLead, catalogSections: Array<{ section: string; label: string }>) => Promise<void>;
-  updateFormData: (
-    stepId: InspectionStepId,
-    data: Partial<InspectionFormData[keyof InspectionFormData]>,
-  ) => void;
-  updateFormDataByKey: (
-    key: keyof InspectionFormData,
-    data: Partial<InspectionFormData[keyof InspectionFormData]>,
-  ) => void;
   /** Dynamic step: write to any section by its catalog section key string */
   updateFormDataBySection: (sectionKey: string, data: Record<string, unknown>) => void;
-  markStepComplete: (stepId: InspectionStepId) => void;
   /** Dynamic step: mark complete by catalog section key string */
   markStepCompleteByKey: (sectionKey: string) => void;
-  markStepIncomplete: (stepId: InspectionStepId) => void;
   submitInspection: () => void;
   resetInspection: () => void;
   setError: (error: string | null) => void;
@@ -36,18 +27,6 @@ interface InspectionActions {
 }
 
 type InspectionStore = InspectionState & InspectionActions;
-
-const getStepKey = (stepId: InspectionStepId): keyof InspectionFormData => {
-  const map: Record<InspectionStepId, keyof InspectionFormData> = {
-    [InspectionStepId.BasicVerification]: 'vehicle',          // Step 1
-    [InspectionStepId.Exterior]: 'airConditioning',           // Step 2 (AC)
-    [InspectionStepId.Interior]: 'steeringBrakes',            // Step 3
-    [InspectionStepId.Engine]: 'engineTransmission',          // Step 4
-    [InspectionStepId.Documents]: 'electricalsInteriors',     // Step 5
-    [InspectionStepId.Media]: 'exterior',                     // Step 6
-  };
-  return map[stepId];
-};
 
 export const useInspectionStore = create<InspectionStore>((set, get) => ({
   currentLead: null,
@@ -120,41 +99,11 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
     })();
   },
 
-  updateFormData: (stepId, data) => {
-    console.log(`[InspectionStore] 📝 Updating form data for step: ${stepId}`, data);
-    set((state) => {
-      if (!state.currentSession) return state;
-      const key = getStepKey(stepId);
-      // Each entry in `data` is { relativePath: value } — write it nested into the section
-      let section = (state.currentSession.formData[key] as Record<string, unknown>) ?? {};
-      for (const [path, value] of Object.entries(data as Record<string, unknown>)) {
-        section = setByPath(section, path, value);
-      }
-      const updatedSession = {
-        ...state.currentSession,
-        formData: { ...state.currentSession.formData, [key]: section },
-      };
-      console.log(`[InspectionStore] ✅ Updated session for ${key}:`, updatedSession.formData[key]);
-      return { currentSession: updatedSession };
-    });
-  },
-
-  updateFormDataByKey: (key, data) => {
-    console.log(`[InspectionStore] 📝 Updating form data by key: ${key}`, data);
-    set((state) => {
-      if (!state.currentSession) return state;
-      let section = (state.currentSession.formData[key] as Record<string, unknown>) ?? {};
-      for (const [path, value] of Object.entries(data as Record<string, unknown>)) {
-        section = setByPath(section, path, value);
-      }
-      const updatedSession = {
-        ...state.currentSession,
-        formData: { ...state.currentSession.formData, [key]: section },
-      };
-      console.log(`[InspectionStore] ✅ Updated session for ${key}:`, updatedSession.formData[key]);
-      return { currentSession: updatedSession };
-    });
-  },
+  // C-7 / M-7: removed `updateFormData`, `updateFormDataByKey`,
+  // `markStepComplete`, `markStepIncomplete`. These used the legacy
+  // `InspectionStepId` enum to address sections, but step IDs are now
+  // arbitrary catalog keys (strings). The old actions silently did nothing
+  // because the enum-based comparisons never matched.
 
   updateFormDataBySection: (sectionKey, data) => {
     console.log(`[InspectionStore] 📝 Updating form data for section: ${sectionKey}`, data);
@@ -176,22 +125,6 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
     });
   },
 
-  markStepComplete: (stepId) => {
-    console.log(`[InspectionStore] ✅ Marking step complete: ${stepId}`);
-    set((state) => {
-      if (!state.currentSession) return state;
-      const updatedSession = {
-        ...state.currentSession,
-        steps: state.currentSession.steps.map((step) =>
-          step.id === stepId ? { ...step, isCompleted: true } : step,
-        ),
-      };
-      const completedCount = updatedSession.steps.filter(s => s.isCompleted).length;
-      console.log(`[InspectionStore] 📊 Progress: ${completedCount}/${updatedSession.steps.length} steps completed`);
-      return { currentSession: updatedSession };
-    });
-  },
-
   markStepCompleteByKey: (sectionKey) => {
     console.log(`[InspectionStore] ✅ Marking step complete by section key: ${sectionKey}`);
     set((state) => {
@@ -206,19 +139,6 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
     });
   },
 
-  markStepIncomplete: (stepId) =>
-    set((state) => {
-      if (!state.currentSession) return state;
-      return {
-        currentSession: {
-          ...state.currentSession,
-          steps: state.currentSession.steps.map((step) =>
-            step.id === stepId ? { ...step, isCompleted: false } : step,
-          ),
-        },
-      };
-    }),
-
   submitInspection: () => {
     console.log('[InspectionStore] 🎉 Submitting inspection - marking as completed');
     set((state) => {
@@ -232,8 +152,15 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
     });
   },
 
-  resetInspection: () =>
-    set({ currentLead: null, currentSession: null, error: null }),
+  resetInspection: () => {
+    // C-5: drop presigned URLs for the appointment that's ending so they
+    // don't leak into the next inspection.
+    const apptId = get().currentLead?.appointmentId;
+    if (apptId) {
+      presignedUrlService.clearAppointment(apptId);
+    }
+    set({ currentLead: null, currentSession: null, error: null });
+  },
 
   setError: (error) => set({ error }),
   setLoading: (isLoading) => set({ isLoading }),

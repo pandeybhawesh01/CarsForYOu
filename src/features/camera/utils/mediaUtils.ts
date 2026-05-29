@@ -153,7 +153,7 @@ export async function getMediaFileSize(uri: string): Promise<number> {
   try {
     const filePath = uri.replace('file://', '');
     const stat = await RNFS.stat(filePath);
-    return parseInt(stat.size, 10);
+    return parseInt(String(stat.size), 10);
   } catch (error) {
     console.error('[mediaUtils] Failed to get media file size:', error);
     return 0;

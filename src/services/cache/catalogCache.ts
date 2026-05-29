@@ -27,21 +27,40 @@ interface CacheEntry {
 
 /**
  * Validates that a cached catalog entry has the expected top-level shape.
- * Guards against stale cache entries written by older app versions that
- * may be missing sections added later (e.g. `vehicle`, `sections`).
+ *
+ * Architecture rule: the catalog is FULLY DYNAMIC. Sections come from the
+ * backend; the frontend must not hardcode any section name. This validator
+ * therefore only checks the structural invariants every catalog must have:
+ *
+ *   - `sections` is a non-empty array
+ *   - every section has `section` (key), `label`, and `children` (array)
+ *   - the path lookup maps exist (may be empty objects)
+ *
+ * Anything stricter (e.g. requiring `vehicle` or `engineTransmission`) would
+ * brick every cached entry the moment a backend section is renamed or removed.
  */
 function isValidCatalog(data: unknown): data is NormalisedCatalog {
   if (!data || typeof data !== 'object') return false;
   const d = data as Record<string, unknown>;
-  return (
-    Array.isArray(d.sections) && // NEW: Check for sections array
-    typeof d.optionsByPath === 'object' &&
-    typeof d.airConditioning === 'object' &&
-    typeof d.engineTransmission === 'object' &&
-    typeof d.steeringBrakes === 'object' &&
-    typeof d.vehicle === 'object' &&
-    typeof d.electricalInteriors === 'object'
-  );
+
+  // Structural maps must exist (can be empty objects)
+  if (typeof d.fieldsByPath !== 'object' || d.fieldsByPath === null) return false;
+  if (typeof d.optionsByPath !== 'object' || d.optionsByPath === null) return false;
+  if (typeof d.uploadPathsBySection !== 'object' || d.uploadPathsBySection === null) return false;
+
+  // Sections must be a non-empty array
+  if (!Array.isArray(d.sections) || d.sections.length === 0) return false;
+
+  // Each section must have the minimum required shape
+  for (const sec of d.sections) {
+    if (!sec || typeof sec !== 'object') return false;
+    const s = sec as Record<string, unknown>;
+    if (typeof s.section !== 'string' || s.section.length === 0) return false;
+    if (typeof s.label !== 'string') return false;
+    if (!Array.isArray(s.children)) return false;
+  }
+
+  return true;
 }
 
 export const catalogCache = {

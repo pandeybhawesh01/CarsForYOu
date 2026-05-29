@@ -12,7 +12,10 @@ import { vs, hs } from '../../../utils/scaling';
 type Props = InspectionStackScreenProps<'InspectionSuccess'>;
 
 const InspectionSuccessScreen: React.FC<Props> = ({ navigation }) => {
-  const { currentLead, currentSession, resetInspection } = useInspectionStore();
+  // C-1: scoped selectors
+  const currentLead = useInspectionStore((s) => s.currentLead);
+  const currentSession = useInspectionStore((s) => s.currentSession);
+  const resetInspection = useInspectionStore((s) => s.resetInspection);
 
   const handleBackToDashboard = useCallback(() => {
     resetInspection();

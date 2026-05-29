@@ -37,7 +37,8 @@ const FILTER_TABS: { label: string; value: FilterTab }[] = [
 const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('ALL');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const {setCurrentLead } = useInspectionStore();
+  // C-1: scoped selector — only the action, which has stable identity in Zustand
+  const setCurrentLead = useInspectionStore((s) => s.setCurrentLead);
   const { user, logout } = useAuth();
 
   const handleLogout = useCallback(() => {

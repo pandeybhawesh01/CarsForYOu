@@ -58,7 +58,9 @@ const SectionCard: React.FC<{
 };
 
 const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
-  const { currentLead, currentSession } = useInspectionStore();
+  // C-1: scoped selectors instead of whole-store destructure.
+  const currentLead = useInspectionStore((s) => s.currentLead);
+  const currentSession = useInspectionStore((s) => s.currentSession);
   const catalog = useCatalogViewModel(selectCatalog);
   
   // Auto-save with unmount save enabled (for app close or back to dashboard)

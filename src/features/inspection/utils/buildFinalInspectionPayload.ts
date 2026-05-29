@@ -94,24 +94,20 @@ export function buildFinalInspectionPayload(
 ): Record<string, unknown> {
   const formData: AnyRecord = {};
 
-  const sections = [
-    'vehicle',
-    'engineTransmission',
-    'airConditioning',
-    'steeringBrakes',
-    'electricalsInteriors',
-    'exterior'
-  ] as const;
+  // C-6: iterate sections from the catalog (fully dynamic) instead of a
+  // hardcoded list. Adding/removing a section in the backend now flows to
+  // submit + auto-save automatically.
+  const sectionKeys = catalog.sections.map((s) => s.section);
 
-  for (const sectionKey of sections) {
-    const section = session.formData[sectionKey];
-    if (!section || Object.keys(section).length === 0) continue;
+  for (const sectionKey of sectionKeys) {
+    const section = (session.formData as AnyRecord)[sectionKey];
+    if (!section || typeof section !== 'object' || Array.isArray(section)) continue;
+    if (Object.keys(section).length === 0) continue;
 
-    // Data is already nested, just apply type coercion
     formData[sectionKey] = processNestedData(
       section as AnyRecord,
       catalog,
-      sectionKey
+      sectionKey,
     );
   }
 

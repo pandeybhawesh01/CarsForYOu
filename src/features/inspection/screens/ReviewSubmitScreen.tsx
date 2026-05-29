@@ -91,7 +91,10 @@ const reviewStyles = StyleSheet.create({
 
 const ReviewSubmitScreen: React.FC<Props> = ({ navigation, route }) => {
   const { inspectionId } = route.params;
-  const { currentLead, currentSession, submitInspection } = useInspectionStore();
+  // C-1: scoped selectors
+  const currentLead = useInspectionStore((s) => s.currentLead);
+  const currentSession = useInspectionStore((s) => s.currentSession);
+  const submitInspection = useInspectionStore((s) => s.submitInspection);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleBack = useCallback(() => navigation.goBack(), [navigation]);
@@ -120,7 +123,6 @@ const ReviewSubmitScreen: React.FC<Props> = ({ navigation, route }) => {
             }
             
             console.log('[ReviewSubmit] 📤 Starting submission process...');
-            console.log('[ReviewSubmit] 📋 Session ID:', currentSession.id);
             console.log('[ReviewSubmit] 📋 Appointment ID:', currentSession.appointmentId);
             
             setIsSubmitting(true);

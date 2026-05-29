@@ -76,7 +76,9 @@ const sectionStyles = StyleSheet.create({
 });
 
 const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
-  const { currentLead, startInspection } = useInspectionStore();
+  // C-1: scoped selectors
+  const currentLead = useInspectionStore((s) => s.currentLead);
+  const startInspection = useInspectionStore((s) => s.startInspection);
   const catalog = useCatalogViewModel(selectCatalog);
 
   const handleBack = useCallback(() => navigation.goBack(), [navigation]);

@@ -21,7 +21,7 @@ export const Camera = React.forwardRef(({ onStarted, onError }: any, ref: any) =
   }
 
   return null;
-};
+});
 
 export const getCameraPermissionStatus = jest.fn().mockResolvedValue('granted');
 export const getMicrophonePermissionStatus = jest.fn().mockResolvedValue('granted');

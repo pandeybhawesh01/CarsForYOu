@@ -1,8 +1,11 @@
 /**
  * S3 Upload Utility
- * 
+ *
  * Handles file uploads to S3 using presigned URLs.
- * Supports progress tracking and proper content type handling.
+ * Supports progress tracking, content type handling, and abort.
+ *
+ * C-10: returns an `abort()` so callers can cancel mid-flight (e.g. if the
+ * camera modal is closed during upload).
  */
 
 import RNFS from 'react-native-fs';
@@ -13,29 +16,36 @@ export interface UploadProgress {
   percentage: number;
 }
 
+export interface UploadHandle {
+  promise: Promise<void>;
+  abort: () => void;
+}
+
 /**
  * Upload a file to S3 using a presigned URL.
- * 
- * @param localUri - Local file URI (file://)
- * @param presignedUrl - Presigned S3 upload URL
- * @param onProgress - Optional progress callback
- * @returns Promise that resolves when upload completes
+ *
+ * @returns `{ promise, abort }` — call `abort()` to cancel; `await promise`
+ *          for completion. Aborting causes the promise to reject with an
+ *          `Error('Upload aborted')`.
  */
-export async function uploadToS3(
+export function uploadToS3(
   localUri: string,
   presignedUrl: string,
   onProgress?: (progress: UploadProgress) => void,
-): Promise<void> {
+): UploadHandle {
   console.log('[S3Upload] 📤 Starting upload');
   console.log('[S3Upload] 📁 Local URI:', localUri);
   console.log('[S3Upload] 🔗 Presigned URL:', presignedUrl.substring(0, 100) + '...');
 
-  try {
+  let aborted = false;
+  const xhr = new XMLHttpRequest();
+
+  const promise = (async () => {
     // Normalize file path (remove file:// prefix if present)
     const filePath = localUri.replace('file://', '');
-    
+
     // Determine content type from URI
-    const isVideo = localUri.toLowerCase().includes('.mp4') || localUri.toLowerCase().includes('video');
+    const isVideo = /\.(mp4|mov|m4v)$/i.test(filePath) || filePath.toLowerCase().includes('video');
     const contentType = isVideo ? 'video/mp4' : 'image/jpeg';
 
     console.log('[S3Upload] 📋 Content type:', contentType);
@@ -46,10 +56,11 @@ export async function uploadToS3(
     const fileSize = fileStats.size;
     console.log('[S3Upload] 📊 File size:', fileSize, 'bytes');
 
-    // Use XMLHttpRequest with file:// URI (React Native supports this)
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+    if (aborted) {
+      throw new Error('Upload aborted');
+    }
 
+    await new Promise<void>((resolve, reject) => {
       // Track upload progress
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && onProgress) {
@@ -69,18 +80,25 @@ export async function uploadToS3(
           resolve();
         } else {
           console.error('[S3Upload] ❌ Upload failed with status:', xhr.status);
-          console.error('[S3Upload] 📄 Response:', xhr.responseText);
           reject(new Error(`Upload failed with status ${xhr.status}`));
         }
       };
 
       xhr.onerror = () => {
-        console.error('[S3Upload] ❌ Network error during upload');
-        reject(new Error('Network error during upload'));
+        if (aborted) {
+          reject(new Error('Upload aborted'));
+        } else {
+          console.error('[S3Upload] ❌ Network error during upload');
+          reject(new Error('Network error during upload'));
+        }
+      };
+
+      xhr.onabort = () => {
+        console.log('[S3Upload] ⏹ Upload aborted by caller');
+        reject(new Error('Upload aborted'));
       };
 
       xhr.ontimeout = () => {
-        console.error('[S3Upload] ❌ Upload timeout');
         reject(new Error('Upload timeout'));
       };
 
@@ -90,34 +108,38 @@ export async function uploadToS3(
 
       // Send file using local URI (React Native XHR supports file:// URIs)
       console.log('[S3Upload] 🚀 Sending file...');
-      xhr.send({ uri: localUri, type: contentType, name: 'file' } as any);
+      xhr.send({ uri: localUri, type: contentType, name: 'file' } as unknown as Document);
     });
+  })();
 
-  } catch (error) {
-    console.error('[S3Upload] ❌ Upload failed:', error);
-    if (error instanceof Error) {
-      console.error('[S3Upload] 📝 Error message:', error.message);
-      console.error('[S3Upload] 📚 Error stack:', error.stack);
-    }
-    throw error;
-  }
+  return {
+    promise,
+    abort: () => {
+      aborted = true;
+      try {
+        xhr.abort();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
 }
 
 /**
  * Delete a local file after successful upload.
- * 
+ *
  * @param localUri - Local file URI to delete
  */
 export async function deleteLocalFile(localUri: string): Promise<void> {
   try {
     console.log('[S3Upload] 🗑️ Deleting local file:', localUri);
-    
+
     // Normalize file path
     const filePath = localUri.replace('file://', '');
-    
+
     // Check if file exists
     const exists = await RNFS.exists(filePath);
-    
+
     if (exists) {
       await RNFS.unlink(filePath);
       console.log('[S3Upload] ✅ Local file deleted');
