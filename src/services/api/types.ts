@@ -128,56 +128,8 @@ export interface NormalisedCatalog {
   uploadPathsBySection?: {
     [sectionKey: string]: string[];
   };
+  /** Path → option-list lookup, used by selects/multi-selects when needed */
   optionsByPath: CatalogOptionsMap;
+  /** Path → field metadata, used by buildFinalInspectionPayload for type coercion */
   fieldsByPath: Record<string, NormalisedField>;
-  vehicleSectionChildren: CatalogNode[];
-  engineTransmissionSectionChildren: CatalogNode[];
-  airConditioningSectionChildren: CatalogNode[];
-  steeringBrakesSectionChildren: CatalogNode[];
-  electricalsInteriorsSectionChildren: CatalogNode[];
-  exteriorSectionChildren: CatalogNode[];
-
-  airConditioning: {
-    acCompressorIssues: string[];
-    acControlPanelIssues: string[];
-    acCoolingIssues: string[];
-    blowerMotorIssues: string[];
-    ventilationSystemIssues: string[];
-  };
-
-  engineTransmission: {
-    batteryAlternatorIssues: string[];
-    blowBy2000rpmIssues: string[];
-    blowByIdleIssues: string[];
-    clutchIssues: string[];
-    coolantIssues: string[];
-    engineConditionIssues: string[];
-    engineMountingIssues: string[];
-    engineOilIssues: string[];
-    exhaustSmokeIssues: string[];
-    fuelInjectorIssues: string[];
-    radiatorIssues: string[];
-    runningConditionIssues: string[];
-    sumpIssues: string[];
-    transmissionGearShiftingIssues: string[];
-    turbochargerAvailable: string[];
-  };
-
-  steeringBrakes: {
-    brakesIssues: string[];
-    steeringIssues: string[];
-    suspensionIssues: string[];
-  };
-
-  vehicle: {
-    leadTypes: string[];
-    rcAvailabilityOptions: string[];
-    rcConditionOptions: string[];
-    fuelTypeOptions: string[];
-    duplicateKeyOptions: string[];
-  };
-
-  electricalInteriors: {
-    powerWindowsCountOptions: string[];
-  };
 }

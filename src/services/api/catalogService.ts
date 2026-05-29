@@ -37,10 +37,6 @@ function extractLabels(options: CatalogInput['options']): string[] {
   return options.map((o) => String(o.label)).filter((l) => l.trim().length > 0);
 }
 
-function extractValues(options: CatalogInput['options']): string[] {
-  return options.map((o) => String(o.value)).filter((v) => v.trim().length > 0);
-}
-
 /**
  * Recursively collect all (path, input) pairs from the tree.
  * Each node can have multiple inputs — we emit one NormalisedField per input.
@@ -121,95 +117,15 @@ function buildOptionsMap(fieldsMap: Record<string, NormalisedField>): CatalogOpt
   return map;
 }
 
-function optionsForPath(
-  fieldsMap: Record<string, NormalisedField>,
-  pathFragment: string,
-): string[] {
-  const exactKey = Object.keys(fieldsMap).find(
-    (k) => k === pathFragment || (k.includes(pathFragment) && k.endsWith(pathFragment.split('.').pop()!)),
-  );
-  if (exactKey) return extractValues(fieldsMap[exactKey].options);
-  const fallback = Object.keys(fieldsMap).find((k) => k.endsWith(pathFragment));
-  return fallback ? extractValues(fieldsMap[fallback].options) : [];
-}
-
 function normalise(raw: CatalogApiResponse): NormalisedCatalog {
   const fieldsMap = buildFieldsMap(raw.data);
   const optionsMap = buildOptionsMap(fieldsMap);
-
-  const vehicleSection = raw.data.find((s) => s.section === 'vehicle');
-  const vehicleSectionChildren = vehicleSection?.children ?? [];
-
-  const engineSection = raw.data.find((s) => s.section === 'engineTransmission');
-  const engineTransmissionSectionChildren = engineSection?.children ?? [];
-
-  const acSection = raw.data.find((s) => s.section === 'airConditioning');
-  const airConditioningSectionChildren = acSection?.children ?? [];
-
-  const sbSection = raw.data.find((s) => s.section === 'steeringBrakes');
-  const steeringBrakesSectionChildren = sbSection?.children ?? [];
-
-  const eiSection = raw.data.find((s) => s.section === 'electricalsInteriors');
-  const electricalsInteriorsSectionChildren = eiSection?.children ?? [];
-
-  const extSection = raw.data.find((s) => s.section === 'exterior');
-  const exteriorSectionChildren = extSection?.children ?? [];
 
   return {
     sections: raw.data,
     uploadPathsBySection: raw.metadata?.uploadPathsBySection,
     optionsByPath: optionsMap,
     fieldsByPath: fieldsMap,
-    vehicleSectionChildren,
-    engineTransmissionSectionChildren,
-    airConditioningSectionChildren,
-    steeringBrakesSectionChildren,
-    electricalsInteriorsSectionChildren,
-    exteriorSectionChildren,
-
-    airConditioning: {
-      acCompressorIssues: optionsForPath(fieldsMap, 'accompressor.issues'),
-      acControlPanelIssues: optionsForPath(fieldsMap, 'acControlPanel.issues'),
-      acCoolingIssues: optionsForPath(fieldsMap, 'acCooling.issues'),
-      blowerMotorIssues: optionsForPath(fieldsMap, 'blowerMotor.issues'),
-      ventilationSystemIssues: optionsForPath(fieldsMap, 'ventilationSystem.issues'),
-    },
-
-    engineTransmission: {
-      batteryAlternatorIssues: optionsForPath(fieldsMap, 'batteryAlternator.issues'),
-      blowBy2000rpmIssues: optionsForPath(fieldsMap, 'blowBy2000rpm.issues'),
-      blowByIdleIssues: optionsForPath(fieldsMap, 'blowByIdle.issues'),
-      clutchIssues: optionsForPath(fieldsMap, 'clutch.issues'),
-      coolantIssues: optionsForPath(fieldsMap, 'coolant.issues'),
-      engineConditionIssues: optionsForPath(fieldsMap, 'engineCondition.issues'),
-      engineMountingIssues: optionsForPath(fieldsMap, 'engineMounting.issues'),
-      engineOilIssues: optionsForPath(fieldsMap, 'engineOil.issues'),
-      exhaustSmokeIssues: optionsForPath(fieldsMap, 'exhaustSmoke.issues'),
-      fuelInjectorIssues: optionsForPath(fieldsMap, 'fuelInjector.issues'),
-      radiatorIssues: optionsForPath(fieldsMap, 'radiator.issues'),
-      runningConditionIssues: optionsForPath(fieldsMap, 'runningCondition.issues'),
-      sumpIssues: optionsForPath(fieldsMap, 'sump.issues'),
-      transmissionGearShiftingIssues: optionsForPath(fieldsMap, 'transmissionGearShifting.issues'),
-      turbochargerAvailable: optionsForPath(fieldsMap, 'turbocharger.isAvailable'),
-    },
-
-    steeringBrakes: {
-      brakesIssues: optionsForPath(fieldsMap, 'brakes.issues'),
-      steeringIssues: optionsForPath(fieldsMap, 'steering.issues'),
-      suspensionIssues: optionsForPath(fieldsMap, 'suspension.issues'),
-    },
-
-    vehicle: {
-      leadTypes: optionsForPath(fieldsMap, 'appointmentDetails.leadType'),
-      rcAvailabilityOptions: optionsForPath(fieldsMap, 'vehicleDetails.rcAvailability'),
-      rcConditionOptions: optionsForPath(fieldsMap, 'vehicleDetails.rcCondition'),
-      fuelTypeOptions: optionsForPath(fieldsMap, 'vehicleDetails.fuelType'),
-      duplicateKeyOptions: optionsForPath(fieldsMap, 'vehicleDetails.duplicateKeyPresent'),
-    },
-
-    electricalInteriors: {
-      powerWindowsCountOptions: optionsForPath(fieldsMap, 'electricalsInteriors.powerWindowsCount'),
-    },
   };
 }
 

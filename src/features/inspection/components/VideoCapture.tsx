@@ -1,26 +1,34 @@
 /**
- * VideoCapture - Fixed for react-native-video ^6.19.2 + S3 URLs
+ * VideoCapture
  *
- * Fixes applied:
- *  1. Single render gate — replaced the isVideoReady+isVideoLoading dual-gate
- *     with one `videoMountKey` that only increments when the modal is fully open,
- *     so the Video component mounts exactly once per open and never flickers.
- *  2. S3 signed-URL safety — cache-busting is done via a custom HTTP header
- *     (x-cache-bust) instead of a query param, so the S3 signature is never
- *     invalidated. Falls back to no-op for local files.
- *  3. paused/controls race fixed — start paused=true, flip to false only after
- *     onLoad fires. This avoids the Android native-thread race in RNV6.
- *  4. Stable Video key — the `<Video>` element always gets `key={videoMountKey}`
- *     so React never reuses the native view across open/close cycles.
- *  5. Hard unmount on close — isPreviewOpen gates the entire Modal tree, and
- *     videoMountKey is reset on close so the next open always gets a fresh player.
- *  6. Thumbnail row has no hidden Video instance — replaced with a pure View
- *     thumbnail so there is never a silent background player competing.
- *  7. onRequestClose stops playback before closing — sets paused=true first,
- *     then closes the modal on the next tick so the native layer can tear down.
+ * Video preview is rendered inside a WebView with an HTML5 <video> element.
+ *
+ * Why WebView and not react-native-video?
+ *   In RN 0.74+/bridgeless mode, react-native-video v6's ExoPlayer SurfaceView
+ *   binds to the host View hierarchy at native-mount time. When the host is
+ *   inside a Modal that has just opened, the SurfaceView attach can fail at
+ *   the JNI layer, which on Android terminates the JS thread before any
+ *   onError callback can fire. Symptom: the app silently dies as soon as
+ *   the user taps the play thumbnail. There is no JS exception, so a
+ *   React error boundary cannot catch it.
+ *
+ *   WebView playback is isolated in a separate native process, so even if
+ *   the platform decoder fails, it cannot crash the app — it just shows a
+ *   broken-video icon inside the WebView frame.
+ *
+ *   `CameraModal` already uses this exact pattern for its post-recording
+ *   preview (see CameraModal.tsx::buildVideoPreviewHtml). We reuse the
+ *   same approach here.
+ *
+ * Other safeguards:
+ *   - The Modal is conditionally in the React tree (mounts only when open).
+ *   - Cache-busting via query param is fine: our S3 URLs are public
+ *     (no X-Amz-Signature), so adding ?_t=... does not break anything.
+ *   - The thumbnail is a pure View with a play button — no hidden video
+ *     player runs in the background.
  */
 
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -30,7 +38,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Video, { VideoRef } from 'react-native-video';
+import { WebView } from 'react-native-webview';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, borderRadius } from '../../../constants/spacing';
@@ -61,33 +69,105 @@ interface VideoCaptureProps {
 }
 
 // ============================================================================
-// Helpers
+// HTML builder for the WebView
 // ============================================================================
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const buildVideoHtml = (videoUri: string) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      #t=0.5 makes the browser seek to the 0.5-second mark on load, so the
+      first frame paints immediately as a still image while the video is
+      paused. Without this, mobile browsers show a black rectangle until
+      the user taps play.
+    -->
+    <video
+      controls
+      playsinline
+      webkit-playsinline
+      preload="auto"
+      src="${escapeHtml(encodeURI(videoUri))}#t=0.5"
+    ></video>
+  </body>
+</html>`;
+
 /**
- * Returns a source object safe for react-native-video v6.
+ * Lightweight HTML used for the THUMBNAIL.
+ * Differences from the playback HTML:
+ *   - no `controls` (clean image, no UI overlay)
+ *   - `muted` so iOS allows the first-frame paint without user gesture
+ *   - `pointer-events: none` in CSS so touches pass through to the parent
+ *     TouchableOpacity (otherwise the WebView swallows them).
+ *   - `object-fit: cover` for a tight thumbnail crop.
  *
- * For S3/remote URLs we pass a custom header instead of mutating the URL
- * with a query param — appending ?_t=... to a pre-signed S3 URL breaks the
- * HMAC signature and causes a 403, which the native player reports as a crash.
- *
- * For local file:// URIs we return the URI as-is (headers are irrelevant).
+ * `preload="metadata"` instructs the browser to fetch just enough of the
+ * video to render the first frame — usually a few hundred KB.
  */
-function buildVideoSource(uri: string, capturedAt?: string) {
-  if (!uri) return null;
-
-  const isRemote = uri.startsWith('http://') || uri.startsWith('https://');
-
-  if (isRemote && capturedAt) {
-    const ts = String(new Date(capturedAt).getTime());
-    return {
-      uri,
-      headers: { 'x-cache-bust': ts },
-    };
-  }
-
-  return { uri };
-}
+const buildThumbnailHtml = (videoUri: string) => `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #1a1a1a;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: #1a1a1a;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <video
+      muted
+      playsinline
+      webkit-playsinline
+      preload="metadata"
+      src="${escapeHtml(encodeURI(videoUri))}#t=0.5"
+    ></video>
+  </body>
+</html>`;
 
 // ============================================================================
 // Component
@@ -104,48 +184,14 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   appointmentId,
   capturedAt,
 }) => {
-  const videoRef = useRef<VideoRef>(null);
-
-  // Camera modal state
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-
-  // File-system validation (local files only)
   const [videoFileError, setVideoFileError] = useState<string | null>(null);
-
-  // Preview modal state
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-
-  /**
-   * FIX 1 — Single render gate.
-   *
-   * videoMountKey starts at 0.  When the user taps the thumbnail we:
-   *   1. Set isPreviewOpen = true  (mounts the Modal)
-   *   2. After one RAF (≈16 ms) increment videoMountKey  (mounts the Video)
-   *
-   * This guarantees the Modal's native container exists before the Video
-   * native view is created, which is required on both iOS and Android in RNV6.
-   * The key also forces a full unmount/remount on every open cycle so stale
-   * native state never leaks between sessions.
-   */
-  const [videoMountKey, setVideoMountKey] = useState(0);
-
-  /**
-   * FIX 3 — Loading / error tracked separately from mount gate.
-   * isVideoLoading is only ever set to true inside onLoadStart, so it can
-   * never pre-empt the Video mount.
-   */
-  const [isVideoLoading, setIsVideoLoading] = useState(false);
-  const [videoPlayError, setVideoPlayError] = useState(false);
-
-  /**
-   * FIX 3 — paused/controls race.
-   * Start paused, flip to false only after onLoad fires.
-   */
-  const [isPaused, setIsPaused] = useState(true);
+  const [isWebViewReady, setIsWebViewReady] = useState(false);
 
   // --------------------------------------------------------------------------
-  // File-system validation (local URIs only)
+  // File-system validation (local URIs only — remote URIs trust the player)
   // --------------------------------------------------------------------------
 
   useEffect(() => {
@@ -158,8 +204,6 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
       }
 
       const normalized = normalizeMediaUri(videoUri);
-
-      // Remote URLs: trust them; the native player will report errors via onError
       if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
         setVideoFileError(null);
         return;
@@ -192,28 +236,32 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   }, [videoUri]);
 
   // --------------------------------------------------------------------------
-  // Derived values
+  // Derived
   // --------------------------------------------------------------------------
 
   const normalizedUri = videoUri ? normalizeMediaUri(videoUri) : '';
+  const isRemote = normalizedUri.startsWith('http://') || normalizedUri.startsWith('https://');
 
-  // FIX 6: thumbnail area never has a hidden Video — canRenderVideo only drives
-  // the thumbnail UI, not an actual Video component.
+  // Cache-bust public S3 URLs by appending the captured-at timestamp.
+  // Safe because our S3 URLs are public (no X-Amz-Signature).
+  const playbackUri = useMemo(() => {
+    if (!normalizedUri) return '';
+    if (isRemote && capturedAt) {
+      const ts = new Date(capturedAt).getTime();
+      const sep = normalizedUri.includes('?') ? '&' : '?';
+      return `${normalizedUri}${sep}_t=${ts}`;
+    }
+    return normalizedUri;
+  }, [normalizedUri, isRemote, capturedAt]);
+
   const canShowThumbnail = Boolean(
-    videoUri &&
-    !videoFileError &&
-    isValidMediaUri(normalizedUri),
+    videoUri && !videoFileError && isValidMediaUri(normalizedUri),
   );
-
-  // Source object for RNV6 (safe for S3 signed URLs — see buildVideoSource)
-  const videoSource = canShowThumbnail
-    ? buildVideoSource(normalizedUri, capturedAt)
-    : null;
 
   const errorMessage = cameraError ?? videoFileError;
 
   // --------------------------------------------------------------------------
-  // Camera handlers
+  // Handlers
   // --------------------------------------------------------------------------
 
   const handleOpenCamera = useCallback(() => {
@@ -222,10 +270,10 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   }, []);
 
   const handleRecordingSuccess = useCallback(
-    (uri: string) => {
+    (uri: string, ts?: string) => {
       setIsCameraOpen(false);
       setVideoFileError(null);
-      onCapture(uri);
+      onCapture(uri, ts);
     },
     [onCapture],
   );
@@ -239,43 +287,19 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
     setCameraError(err.userMessage);
   }, []);
 
-  // --------------------------------------------------------------------------
-  // Preview modal handlers
-  // --------------------------------------------------------------------------
-
   const handleOpenPreview = useCallback(() => {
-    // Reset per-session state before opening
-    setVideoPlayError(false);
-    setIsVideoLoading(false);
-    setIsPaused(true);             // FIX 3 — start paused
+    setIsWebViewReady(false);
     setIsPreviewOpen(true);
-
-    // FIX 1 — defer Video mount by one animation frame so the Modal's native
-    // container is guaranteed to exist before the Video native view is created.
-    requestAnimationFrame(() => {
-      setVideoMountKey(k => k + 1);
-    });
   }, []);
 
-  /**
-   * FIX 7 — Stop playback before closing.
-   * Pausing first lets the native player finish its current decode cycle;
-   * closing on the next tick then tears it down cleanly.
-   */
   const handleClosePreview = useCallback(() => {
-    setIsPaused(true);
     setIsPreviewOpen(false);
-    // Reset so next open gets a fresh player (FIX 4)
-    setVideoMountKey(0);
-    setVideoPlayError(false);
-    setIsVideoLoading(false);
+    setIsWebViewReady(false);
   }, []);
 
   const handleDelete = useCallback(() => {
-    setIsPaused(true);
     setIsPreviewOpen(false);
-    setVideoMountKey(0);
-    setVideoPlayError(false);
+    setIsWebViewReady(false);
     setVideoFileError(null);
     onCapture('');
   }, [onCapture]);
@@ -286,90 +310,11 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
   }, [onCapture]);
 
   // --------------------------------------------------------------------------
-  // Video player callbacks
-  // --------------------------------------------------------------------------
-
-  const handleVideoLoadStart = useCallback(() => {
-    setIsVideoLoading(true);
-    setVideoPlayError(false);
-  }, []);
-
-  const handleVideoLoad = useCallback(() => {
-    setIsVideoLoading(false);
-    setIsPaused(false);   // FIX 3 — only autoplay after native player is ready
-  }, []);
-
-  const handleVideoError = useCallback((error: unknown) => {
-    console.error('[VideoCapture] Video error:', error);
-    setIsVideoLoading(false);
-    setVideoPlayError(true);
-  }, []);
-
-  const handleRetry = useCallback(() => {
-    setVideoPlayError(false);
-    setIsVideoLoading(false);
-    // Re-mount the Video component by bumping the key (FIX 4)
-    setVideoMountKey(k => k + 1);
-  }, []);
-
-  // --------------------------------------------------------------------------
-  // Render helpers
-  // --------------------------------------------------------------------------
-
-  /**
-   * FIX 2 — The preview Video node.
-   * Only rendered when videoMountKey > 0 (i.e. after the RAF fires post-open).
-   * Always given an explicit key so React never reuses the native view.
-   */
-  const renderVideoPlayer = () => {
-    if (!videoSource || videoMountKey === 0) return null;
-
-    if (videoPlayError) {
-      return (
-        <View style={styles.centeredOverlay}>
-          <Text style={styles.overlayIcon}>⚠️</Text>
-          <Text style={styles.overlayText}>Unable to load video</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    return (
-      <>
-        {/* FIX 4 — stable key per open session */}
-        <Video
-          key={`video-player-${videoMountKey}`}
-          ref={videoRef}
-          source={videoSource}
-          style={styles.fullSizeVideo}
-          resizeMode="contain"
-          paused={isPaused}   // FIX 3
-          controls={true}
-          onLoadStart={handleVideoLoadStart}
-          onLoad={handleVideoLoad}
-          onError={handleVideoError}
-          // RNV6: prevent the player from trying to buffer the next item
-          repeat={false}
-        />
-        {isVideoLoading && (
-          <View style={styles.centeredOverlay}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.overlayText}>Loading video…</Text>
-          </View>
-        )}
-      </>
-    );
-  };
-
-  // --------------------------------------------------------------------------
-  // Main render
+  // Render
   // --------------------------------------------------------------------------
 
   return (
     <View style={styles.container}>
-      {/* Label */}
       <View style={styles.header}>
         <Text style={styles.label}>{label}</Text>
         {isRequired && <Text style={styles.required}> *</Text>}
@@ -377,7 +322,6 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
 
       {hint && <Text style={styles.hint}>{hint}</Text>}
 
-      {/* Error banner */}
       {errorMessage ? (
         <View style={styles.errorContainer} accessible accessibilityRole="alert">
           <Text style={styles.errorText}>{errorMessage}</Text>
@@ -390,14 +334,36 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
           style={styles.previewContainer}
           onPress={handleOpenPreview}
           activeOpacity={0.8}>
-
-          {/* FIX 5 — pure View thumbnail, NO hidden Video component */}
           {canShowThumbnail ? (
             <View style={styles.videoThumbnail}>
-              <View style={styles.videoThumbnailPlaceholder}>
-                <Text style={styles.videoPlaceholderIcon}>🎥</Text>
-                <Text style={styles.videoThumbnailText}>Tap to play video</Text>
-              </View>
+              {/*
+                Real first-frame thumbnail rendered inside an isolated WebView.
+                pointer-events on the WebView is `none` so the parent
+                TouchableOpacity still receives the tap. If the thumbnail
+                fails to load for any reason (network, decoder, etc.) the
+                WebView quietly shows a black background — never crashes.
+              */}
+              <WebView
+                style={styles.thumbnailWebView}
+                originWhitelist={['*']}
+                source={{ html: buildThumbnailHtml(playbackUri) }}
+                javaScriptEnabled
+                domStorageEnabled
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                allowFileAccess
+                allowFileAccessFromFileURLs
+                allowUniversalAccessFromFileURLs
+                mixedContentMode="always"
+                androidLayerType="hardware"
+                pointerEvents="none"
+                scrollEnabled={false}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                // Keep the WebView background dark so the thumbnail load is invisible
+                opaque={false}
+              />
+              {/* Play button overlay sits on top of the thumbnail */}
               <View style={styles.playOverlay} pointerEvents="none">
                 <View style={styles.playButton}>
                   <Text style={styles.playIcon}>▶</Text>
@@ -413,7 +379,6 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
             </View>
           )}
 
-          {/* Delete / re-record */}
           <TouchableOpacity
             onPress={handleEdit}
             style={styles.deleteButton}
@@ -447,32 +412,50 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
         appointmentId={appointmentId}
       />
 
-      {/* Full-screen preview modal — FIX 5: only in tree when open */}
-      {isPreviewOpen ? (
+      {/* Preview modal — WebView playback (no native ExoPlayer crash risk) */}
+      {isPreviewOpen && playbackUri ? (
         <Modal
           visible={isPreviewOpen}
           transparent
-          animationType="fade"
+          animationType="none"
           onRequestClose={handleClosePreview}
-          // RNV6 + Android: keep the status bar stable
           statusBarTranslucent={false}>
           <SafeAreaView style={styles.previewModalContainer} edges={['top', 'bottom']}>
             <View style={styles.previewModalContent}>
-
-              {/* Video player area */}
               <View style={styles.videoPlayerContainer}>
-                {videoMountKey === 0 ? (
-                  // Still waiting for the RAF — show a brief spinner
-                  <View style={styles.centeredOverlay}>
+                <WebView
+                  style={styles.fullSizeVideo}
+                  originWhitelist={['*']}
+                  source={{ html: buildVideoHtml(playbackUri) }}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  allowsInlineMediaPlayback
+                  mediaPlaybackRequiresUserAction={false}
+                  allowFileAccess
+                  allowFileAccessFromFileURLs
+                  allowUniversalAccessFromFileURLs
+                  mixedContentMode="always"
+                  onLoadEnd={() => setIsWebViewReady(true)}
+                  onError={(event) => {
+                    console.warn('[VideoCapture] WebView error', event.nativeEvent);
+                  }}
+                  onHttpError={(event) => {
+                    console.warn('[VideoCapture] WebView HTTP error', event.nativeEvent);
+                  }}
+                  // Ensures the back button on Android does not nav away
+                  onShouldStartLoadWithRequest={() => true}
+                  // Use hardware accelerated rendering layer to keep playback smooth
+                  androidLayerType="hardware"
+                />
+
+                {!isWebViewReady && (
+                  <View style={styles.loadingOverlay}>
                     <ActivityIndicator size="large" color={colors.primary} />
-                    <Text style={styles.overlayText}>Preparing video…</Text>
+                    <Text style={styles.overlayText}>Loading video…</Text>
                   </View>
-                ) : (
-                  renderVideoPlayer()
                 )}
               </View>
 
-              {/* Action bar */}
               <View style={styles.previewActions}>
                 <TouchableOpacity
                   style={[styles.previewActionButton, styles.deleteActionButton]}
@@ -492,7 +475,6 @@ const VideoCapture: React.FC<VideoCaptureProps> = ({
                   <Text style={styles.previewActionText}>Close</Text>
                 </TouchableOpacity>
               </View>
-
             </View>
           </SafeAreaView>
         </Modal>
@@ -570,6 +552,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSecondary,
     position: 'relative',
   },
+  thumbnailWebView: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+  },
   videoThumbnailPlaceholder: {
     height: '100%',
     width: '100%',
@@ -599,7 +585,11 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
   },
   playOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -651,19 +641,21 @@ const styles = StyleSheet.create({
   videoPlayerContainer: {
     flex: 1,
     backgroundColor: '#000',
+    position: 'relative',
   },
   fullSizeVideo: {
     flex: 1,
+    backgroundColor: '#000',
   },
-  centeredOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  overlayIcon: {
-    fontSize: 40,
-    marginBottom: vs(8),
   },
   overlayText: {
     marginTop: vs(8),
@@ -698,18 +690,6 @@ const styles = StyleSheet.create({
   },
   previewActionText: {
     fontSize: typography.fontSize.base,
-    color: colors.surface,
-    fontWeight: typography.fontWeight.semiBold,
-  },
-  retryButton: {
-    marginTop: vs(16),
-    paddingVertical: vs(12),
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-  },
-  retryButtonText: {
-    fontSize: typography.fontSize.sm,
     color: colors.surface,
     fontWeight: typography.fontWeight.semiBold,
   },
