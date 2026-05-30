@@ -53,6 +53,7 @@ import AppInput from '../../../../components/AppInput';
 // H-8: removed InspectionImageDetailPanel import — photo-detail modal flow is dead.
 import ConnectedPhotoCapture from '../../components/Connectedphotocapture';
 import ConnectedVideoCapture from '../../components/Connectedvideocapture';
+import ConnectedGroupCard from '../../components/ConnectedGroupCard';
 import MultiSelectChips from '../../components/MultiSelectChips';
 import MultiSelectWithSubOptions from '../../components/MultiSelectWithSubOptions';
 import AppButton from '../../../../components/AppButton';
@@ -249,29 +250,9 @@ const csS = StyleSheet.create({
   textSel: { color: colors.primary, fontWeight: typography.fontWeight.semiBold },
 });
 
-const GroupCard: React.FC<{ label: string; hasContent: boolean; onPress: () => void }> = ({ label, hasContent, onPress }) => (
-  <TouchableOpacity style={gcS.card} onPress={onPress} activeOpacity={0.75} accessibilityRole="button">
-    <View style={gcS.iconWrap}>
-      <Text style={gcS.icon}>📷</Text>
-      {hasContent && <View style={gcS.dot} />}
-    </View>
-    <View style={gcS.body}>
-      <Text style={gcS.label}>{label}</Text>
-      <Text style={gcS.sub}>{hasContent ? '✓ Submitted' : 'Tap to capture & review'}</Text>
-    </View>
-    <Text style={gcS.chevron}>›</Text>
-  </TouchableOpacity>
-);
-const gcS = StyleSheet.create({
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceSecondary, borderRadius: borderRadius.md, padding: spacing.base, marginBottom: verticalSpacing.md, borderWidth: 1, borderColor: colors.borderLight, gap: spacing.sm },
-  iconWrap: { width: 44, height: 44, borderRadius: borderRadius.sm, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
-  icon: { fontSize: 22 },
-  dot: { position: 'absolute', top: 2, right: 2, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.success, borderWidth: 1.5, borderColor: colors.surface },
-  body: { flex: 1 },
-  label: { fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semiBold, color: colors.text, marginBottom: 2 },
-  sub: { fontSize: typography.fontSize.xs, color: colors.textSecondary },
-  chevron: { fontSize: 22, color: colors.textSecondary, fontWeight: typography.fontWeight.bold },
-});
+// GroupCard moved to ConnectedGroupCard.tsx — it now subscribes to its own
+// group's image slots so only the changed card re-renders, and shows a real
+// thumbnail of the first captured image.
 
 // ─── Input renderer ───────────────────────────────────────────────────────────
 
@@ -492,15 +473,18 @@ function renderNodes(nodes: CatalogNode[], handlers: RenderHandlers, depth = 0):
 function renderSingleNode(node: CatalogNode, handlers: RenderHandlers, keyPrefix: string, depth = 0): React.ReactNode {
   if (isGroup(node)) {
     if (depth >= 1) {
-      const inputs = getInputs(node);
-      const children = getChildren(node);
-      const hasContent =
-        inputs.some((inp) => inp.inputType === 'file-upload' && inp.options.some((opt) => {
-          const photoBlock = handlers.getFormValue(stripSectionPrefix(`${node.path}.${String(opt.value)}`)) as PhotoIssueInspectionBlock | undefined;
-          return Boolean((photoBlock?.photos?.[0] as { url?: string } | undefined)?.url);
-        })) ||
-        children.some((child) => { const val = handlers.getFormValue(stripSectionPrefix(child.path)); return val !== undefined && String(val).trim().length > 0; });
-      return <GroupCard key={`${keyPrefix}-card`} label={cleanLabel(node.label)} hasContent={hasContent} onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })} />;
+      // ConnectedGroupCard subscribes to its own group's image slots in the
+      // store, so only this card re-renders when an image inside it changes.
+      // No hasContent computed here — the card derives its own state.
+      return (
+        <ConnectedGroupCard
+          key={`${keyPrefix}-card`}
+          node={node}
+          label={cleanLabel(node.label)}
+          sectionKey={handlers.sectionKey}
+          onPress={() => handlers.onGroupPress({ node, label: cleanLabel(node.label) })}
+        />
+      );
     }
     const inputs = getInputs(node);
     const children = getChildren(node);
