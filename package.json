@@ -1,5 +1,5 @@
 {
-  "name": "Cars24",
+  "name": "AutoInspectAI",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -25,6 +25,7 @@
     "react-native-fs": "^2.20.0",
     "react-native-image-picker": "^8.2.1",
     "react-native-image-zoom-viewer": "^3.0.1",
+    "react-native-keychain": "^10.0.0",
     "react-native-nitro-image": "^0.14.0",
     "react-native-nitro-modules": "^0.35.7",
     "react-native-safe-area-context": "^5.5.2",

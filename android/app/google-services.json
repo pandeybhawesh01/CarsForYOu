@@ -1,26 +1,44 @@
 {
   "project_info": {
-    "project_number": "1082830632125",
-    "project_id": "carsforyou-c3b3d",
-    "storage_bucket": "carsforyou-c3b3d.firebasestorage.app"
+    "project_number": "250674133325",
+    "project_id": "auth-carswipe-a6465",
+    "storage_bucket": "auth-carswipe-a6465.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1082830632125:android:345f43165d9e9f955033d4",
+        "mobilesdk_app_id": "1:250674133325:android:39f36ab7ac801c51711f04",
         "android_client_info": {
-          "package_name": "com.cars24"
+          "package_name": "in.carswipe.autoinspectai"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "250674133325-dn4h5cr5qulo9vlvivcnnl0859t75oca.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "in.carswipe.autoinspectai",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "250674133325-p6p9r97t5fob2bhumhn9m0rn6fubsjra.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyDJGNR334D9d8fdCAVrX93bzMmBkcXYxzc"
+          "current_key": "AIzaSyDKz8ABp2gUGBIw8vN8uPNCdCocJ_CKwzM"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "250674133325-p6p9r97t5fob2bhumhn9m0rn6fubsjra.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

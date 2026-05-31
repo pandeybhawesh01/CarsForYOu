@@ -1,5 +1,5 @@
 /**
- * Cars24 Dealer Inspection App
+ * Auto Inspect AI Dealer Inspection App
  * Production-grade React Native application with Firebase Authentication
  */
 
@@ -8,8 +8,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { configureGoogleSignIn } from './src/services/auth';
-import { firebaseAuthService } from './src/services/auth';
-import { setAuthTokenProvider } from './src/services/api/httpClient';
+import { backendAuthService } from './src/services/auth/backendAuthService';
+import { tokenStore } from './src/services/auth/tokenStore';
+import { setAuthTokenProvider, setRefreshHandler } from './src/services/api/httpClient';
 import { useCatalogViewModel } from './src/viewmodels/catalogViewModel';
 import { offlineQueue } from './src/services/offline/offlineQueue';
 
@@ -33,9 +34,12 @@ const CatalogBootstrap: React.FC = () => {
 const GoogleSignInConfig: React.FC = () => {
   useEffect(() => {
     configureGoogleSignIn();
-    // Wire the HTTP client to the Firebase ID token so every API request
-    // automatically carries an `Authorization: Bearer <token>` header.
-    setAuthTokenProvider(() => firebaseAuthService.getIdToken());
+    // Wire the HTTP client to the backend-issued access token (kept in memory)
+    // and the refresh handler (uses the Keychain refresh token). Every API
+    // request now carries `Authorization: Bearer <backend access token>`, and
+    // a 401 transparently triggers a refresh + retry.
+    setAuthTokenProvider(() => tokenStore.getAccessToken());
+    setRefreshHandler(() => backendAuthService.refresh());
   }, []);
 
   return null;

@@ -633,7 +633,7 @@ Response:
 ### Catalog Caching
 
 **Storage**: AsyncStorage (persistent across app restarts)  
-**Key**: `@cars24:inspection_catalog_v1`  
+**Key**: `@autoinspectai:inspection_catalog_v1`  
 **TTL**: 24 hours  
 **Invalidation**: Version-based (admin controlled)
 
@@ -959,7 +959,7 @@ All components have console.log statements with prefixes:
 ```typescript
 // In app, run this in console or add a button
 import AsyncStorage from '@react-native-async-storage/async-storage';
-await AsyncStorage.removeItem('@cars24:inspection_catalog_v1');
+await AsyncStorage.removeItem('@autoinspectai:inspection_catalog_v1');
 ```
 
 ### Force Catalog Refresh

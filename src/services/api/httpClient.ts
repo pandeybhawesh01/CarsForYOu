@@ -1,9 +1,14 @@
 /**
  * Minimal HTTP client wrapper.
- * Attaches the API key header to every request automatically.
+ * Attaches the API key + bearer token header to every request automatically.
  *
  * H-15: every request gets a 30-second AbortController timeout by default.
  * Pass a custom `timeoutMs` (or `signal`) to override.
+ *
+ * Auth: on a 401, the client runs a SINGLE-FLIGHT token refresh (only one
+ * refresh call even if many requests 401 at once), then retries the original
+ * request once with the new token. If the refresh fails, it fires the
+ * "unauthorized" callback (used to bounce the user to the login screen).
  */
 
 import { API_KEY } from './endpoints';
@@ -16,6 +21,8 @@ interface RequestOptions {
   timeoutMs?: number;
   /** Skip attaching the Authorization bearer token for this request. */
   skipAuth?: boolean;
+  /** Internal: marks a request that has already been retried after refresh. */
+  _isRetry?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -32,6 +39,28 @@ export function setAuthTokenProvider(provider: TokenProvider | null): void {
   tokenProvider = provider;
 }
 
+/**
+ * Refresh handler. Returns a fresh access token, or null if refresh failed.
+ * Registered at startup so httpClient doesn't import the auth service.
+ */
+type RefreshHandler = () => Promise<string | null>;
+let refreshHandler: RefreshHandler | null = null;
+
+export function setRefreshHandler(handler: RefreshHandler | null): void {
+  refreshHandler = handler;
+}
+
+/**
+ * Called when authentication is unrecoverable (refresh failed / no token).
+ * The app registers this to clear state and redirect to login.
+ */
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
 async function resolveAuthToken(): Promise<string | null> {
   if (!tokenProvider) return null;
   try {
@@ -40,6 +69,31 @@ async function resolveAuthToken(): Promise<string | null> {
     console.warn('[HTTP] Failed to resolve auth token:', err);
     return null;
   }
+}
+
+// ─── Single-flight refresh ─────────────────────────────────────────────────
+// If several requests 401 simultaneously, only the FIRST triggers a refresh;
+// the rest await the same in-flight promise and then retry with the new token.
+
+let refreshInFlight: Promise<string | null> | null = null;
+
+function refreshTokenOnce(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  if (!refreshHandler) return Promise.resolve(null);
+
+  refreshInFlight = (async () => {
+    try {
+      return await refreshHandler!();
+    } catch (err) {
+      console.warn('[HTTP] Refresh handler threw:', err);
+      return null;
+    } finally {
+      // Clear so the next 401 (after this batch) can refresh again.
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 export class ApiError extends Error {
@@ -52,7 +106,8 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
+/** Performs a single fetch attempt (no refresh logic). */
+async function doFetch<T>(url: string, options: RequestOptions): Promise<T> {
   const method = options.method ?? 'GET';
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -101,6 +156,35 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
     throw err;
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await doFetch<T>(url, options);
+  } catch (err) {
+    const is401 = err instanceof ApiError && err.status === 401;
+
+    // Only attempt refresh for authenticated requests that haven't already retried.
+    if (is401 && !options.skipAuth && !options._isRetry && refreshHandler) {
+      const newToken = await refreshTokenOnce();
+
+      if (newToken) {
+        // Retry the original request once with the refreshed token.
+        return doFetch<T>(url, { ...options, _isRetry: true });
+      }
+
+      // Refresh failed → session is unrecoverable. Notify the app (→ login).
+      if (unauthorizedHandler) {
+        try {
+          unauthorizedHandler();
+        } catch (cbErr) {
+          console.warn('[HTTP] unauthorizedHandler threw:', cbErr);
+        }
+      }
+    }
+
+    throw err;
   }
 }
 

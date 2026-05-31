@@ -16,7 +16,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NormalisedCatalog } from '../api/types';
 
-const CACHE_KEY = '@cars24:inspection_catalog_v1';
+const CACHE_KEY = '@autoinspectai:inspection_catalog_v1';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface CacheEntry {

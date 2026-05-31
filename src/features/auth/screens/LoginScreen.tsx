@@ -11,8 +11,8 @@ import {
   Image,
   Alert,
   StatusBar,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../context/AuthContext';
 import AppButton from '../../../components/AppButton';
 import { colors } from '../../../constants/colors';
@@ -50,7 +50,7 @@ const LoginScreen: React.FC = () => {
           <View style={styles.logoContainer}>
             <Text style={styles.logoText}>🚗</Text>
           </View>
-          <Text style={styles.appName}>CarsForYou</Text>
+          <Text style={styles.appName}>Auto Inspect AI</Text>
           <Text style={styles.tagline}>Dealer Inspection Platform</Text>
         </View>
 

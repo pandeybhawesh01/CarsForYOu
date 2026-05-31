@@ -1,11 +1,26 @@
 /**
  * Firebase Authentication Service
- * Handles Google Sign-In with Firebase Authentication
+ * Handles Google Sign-In with Firebase Authentication.
+ *
+ * Uses the Firebase v22 modular API (getAuth/signInWithCredential/...) to
+ * avoid the deprecated namespaced API (`auth().xxx`) which logs warnings and
+ * will be removed in a future major. See https://rnfirebase.io/migrating-to-v22
  */
 
-import auth from '@react-native-firebase/auth';
+import { getApp } from '@react-native-firebase/app';
+import {
+  getAuth,
+  signInWithCredential,
+  signOut as firebaseSignOut,
+  onAuthStateChanged as firebaseOnAuthStateChanged,
+  GoogleAuthProvider,
+  type FirebaseAuthTypes,
+} from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import type { AuthUser, AuthService, FirebaseUser } from './types';
+
+/** Single auth instance bound to the default app. */
+const authInstance = getAuth(getApp());
 
 /**
  * Configure Google Sign-In
@@ -13,7 +28,7 @@ import type { AuthUser, AuthService, FirebaseUser } from './types';
  */
 export const configureGoogleSignIn = (): void => {
   GoogleSignin.configure({
-    webClientId: '1082830632125-8hdstm7u2jcvgfato0itn34su78l1fb0.apps.googleusercontent.com',
+    webClientId: '250674133325-p6p9r97t5fob2bhumhn9m0rn6fubsjra.apps.googleusercontent.com',
     offlineAccess: true,
     forceCodeForRefreshToken: true,
   });
@@ -55,10 +70,10 @@ class FirebaseAuthService implements AuthService {
       }
 
       // Create Firebase credential with the Google ID token
-      const googleCredential = auth.GoogleAuthProvider.credential(data.idToken);
+      const googleCredential = GoogleAuthProvider.credential(data.idToken);
 
       // Sign in to Firebase with the Google credential
-      const userCredential = await auth().signInWithCredential(googleCredential);
+      const userCredential = await signInWithCredential(authInstance, googleCredential);
 
       const authUser = mapFirebaseUser(userCredential.user);
 
@@ -85,19 +100,31 @@ class FirebaseAuthService implements AuthService {
   }
 
   /**
-   * Sign out the current user
-   * @returns Promise<void>
+   * Sign out the current user.
+   * Tolerant of the "no current user" case (e.g. logout called twice, or after
+   * a forced logout) — that's a no-op, not an error.
    */
   async logout(): Promise<void> {
+    // Always try to sign out of Google (clears the cached Google account).
     try {
-      // Sign out from Google
       await GoogleSignin.signOut();
+    } catch (error) {
+      console.warn('[FirebaseAuthService] Google sign-out failed:', error);
+    }
 
-      // Sign out from Firebase
-      await auth().signOut();
+    // Only sign out of Firebase if there's actually a signed-in user.
+    if (!authInstance.currentUser) {
+      return;
+    }
+    try {
+      await firebaseSignOut(authInstance);
     } catch (error: any) {
+      // No current user is not a real failure — swallow it.
+      if (error?.code === 'auth/no-current-user') {
+        return;
+      }
       console.error('Logout Error:', error);
-      throw new Error(error.message || 'Failed to sign out');
+      throw new Error(error?.message || 'Failed to sign out');
     }
   }
 
@@ -106,18 +133,17 @@ class FirebaseAuthService implements AuthService {
    * @returns AuthUser | null
    */
   getCurrentUser(): AuthUser | null {
-    const firebaseUser = auth().currentUser;
-    return mapFirebaseUser(firebaseUser);
+    return mapFirebaseUser(authInstance.currentUser);
   }
 
   /**
    * Get the Firebase ID token for the current user.
-   * Used as the Bearer token for authenticated backend requests.
+   * Used to exchange for backend JWTs.
    * @param forceRefresh - force a token refresh instead of using the cached one
    * @returns Promise<string | null> - the JWT, or null if no user is signed in
    */
   async getIdToken(forceRefresh = false): Promise<string | null> {
-    const firebaseUser = auth().currentUser;
+    const firebaseUser = authInstance.currentUser;
     if (!firebaseUser) return null;
     try {
       return await firebaseUser.getIdToken(forceRefresh);
@@ -133,9 +159,8 @@ class FirebaseAuthService implements AuthService {
    * @returns Unsubscribe function
    */
   onAuthStateChanged(callback: (user: AuthUser | null) => void): () => void {
-    return auth().onAuthStateChanged((firebaseUser) => {
-      const authUser = mapFirebaseUser(firebaseUser);
-      callback(authUser);
+    return firebaseOnAuthStateChanged(authInstance, (firebaseUser: FirebaseAuthTypes.User | null) => {
+      callback(mapFirebaseUser(firebaseUser));
     });
   }
 }

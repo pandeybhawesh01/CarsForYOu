@@ -12,8 +12,6 @@
  * here — keep dev / staging values only.
  */
 
-import { Platform } from 'react-native';
-
 declare const process: { env: Record<string, string | undefined> };
 
 // Read with safe fallback (process may not exist in some RN runtimes)
@@ -25,27 +23,28 @@ function readEnv(key: string, fallback: string): string {
   }
 }
 
-const DEV_API_BASE_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:3000/api/v1'
-    : 'http://localhost:3000/api/v1';
+// Dev server reachable from the device. Use the laptop's LAN IP so BOTH a
+// physical device and an emulator (on the same Wi-Fi) can reach it. If you
+// switch networks, update this IP (run `hostname -I`).
+const DEV_SERVER_HOST = '192.168.1.37';
+
+const DEV_API_BASE_URL = `https://inspection-backend-production-cdac.up.railway.app/api/v1`;
 
 const PROD_API_BASE_URL = 'https://inspection-backend-production-cdac.up.railway.app/api/v1';
 
 /**
  * API base URL.
- * In __DEV__ tries to use the local dev server; in prod uses Railway.
+ * In __DEV__ uses the local dev server (10.0.2.2 on Android emulator,
+ * localhost on iOS sim); in prod uses Railway.
  * Override via `API_BASE_URL` env var if present.
  */
 export const API_BASE_URL: string = readEnv(
   'API_BASE_URL',
-  __DEV__ ? PROD_API_BASE_URL : PROD_API_BASE_URL,
-  // Note: switched dev default to PROD_API_BASE_URL to match the previous
-  // hardcoded behaviour. Change to DEV_API_BASE_URL once a local server is set up.
+  __DEV__ ? DEV_API_BASE_URL : PROD_API_BASE_URL,
 );
 
 // Suppress unused-warning while keeping the helper import correct
-void DEV_API_BASE_URL;
+void PROD_API_BASE_URL;
 
 /**
  * API key.

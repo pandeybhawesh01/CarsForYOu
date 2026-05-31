@@ -22,7 +22,7 @@ type Props = MainTabScreenProps<'Profile'>;
  * Reached by tapping the avatar on the dashboard.
  */
 const ProfileScreen: React.FC<Props> = ({ navigation }) => {
-  const { user, logout } = useAuth();
+  const { user, employee, logout } = useAuth();
 
   const handleLogout = () => {
     Alert.alert(
@@ -53,23 +53,23 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
             <Text style={styles.avatarIcon}>
-              {user?.photoURL ? '📸' : (user?.displayName?.charAt(0) || '👤')}
+              {employee?.name?.charAt(0) || '👤'}
             </Text>
           </View>
-          <Text style={styles.userName}>{user?.displayName || 'Guest User'}</Text>
-          <Text style={styles.userEmail}>{user?.email || 'Not available'}</Text>
+          <Text style={styles.userName}>{employee?.name || 'Unknown User'}</Text>
+          <Text style={styles.userEmail}>{employee?.email || 'Email not available'}</Text>
         </View>
 
         {/* User Information Card */}
         {user && (
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>User ID</Text>
-              <Text style={styles.infoValue}>{user.uid.substring(0, 20)}...</Text>
+              <Text style={styles.infoLabel}>Employee Code</Text>
+              <Text style={styles.infoValue}>{employee?.employeeCode || 'N/A'}</Text>
             </View>
             <View style={[styles.infoRow, styles.infoBorder]}>
               <Text style={styles.infoLabel}>Email</Text>
-              <Text style={styles.infoValue}>{user.email || 'Not set'}</Text>
+              <Text style={styles.infoValue}>{employee?.email || 'Not available'}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Account Status</Text>

@@ -16,7 +16,7 @@ import { ENDPOINTS } from './endpoints';
 import { httpPost } from './httpClient';
 import { useCatalogViewModel } from '../../viewmodels/catalogViewModel';
 
-const STORAGE_KEY = '@cars24:presigned_url_cache_v1';
+const STORAGE_KEY = '@autoinspectai:presigned_url_cache_v1';
 
 interface PresignedUrlResponse {
   success: boolean;

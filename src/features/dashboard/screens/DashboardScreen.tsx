@@ -17,7 +17,6 @@ import type { InspectionLead } from '../../inspection/types';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
 import { appointmentsService, type AppointmentTab } from '../../../services/api/appointmentsService';
-import { mockUser } from '../../../services/mockData';
 import InspectionCard from '../../../components/InspectionCard';
 import EmptyState from '../../../components/EmptyState';
 import { useAuth } from '../../../context/AuthContext';
@@ -67,7 +66,9 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [leads, setLeads] = useState<InspectionLead[]>([]);
   // C-1: scoped selector — only the action, which has stable identity in Zustand
   const setCurrentLead = useInspectionStore((s) => s.setCurrentLead);
-  const { user } = useAuth();
+  const { user, employee } = useAuth();
+
+  const displayName = employee?.name || 'Unknown User';
 
   const handleOpenProfile = useCallback(() => {
     navigation.navigate('Profile');
@@ -238,8 +239,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       <View style={[styles.header, { paddingTop: insets.top + vs(16) }]}>
         <View style={styles.headerLeft}>
           <Text style={styles.greeting}>{greeting.label} {greeting.icon}</Text>
-          <Text style={styles.name}>{user?.displayName || mockUser.name}</Text>
-          <Text style={styles.zone}>📍 {mockUser.zone} • {mockUser.employeeId}</Text>
+          <Text style={styles.name}>{displayName}</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -250,7 +250,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
             accessibilityLabel="Open profile"
             testID="profile-avatar-btn">
             <Text style={styles.avatarText}>
-              {(user?.displayName || mockUser.name).charAt(0)}
+              {employee?.name ? employee.name.charAt(0).toUpperCase() : '👤'}
             </Text>
           </TouchableOpacity>
         </View>

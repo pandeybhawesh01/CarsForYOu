@@ -1,4 +1,4 @@
-package com.cars24
+package `in`.carswipe.autoinspectai
 
 import android.app.Application
 import com.facebook.react.PackageList

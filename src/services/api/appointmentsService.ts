@@ -3,16 +3,16 @@
  * the dashboard home screen.
  *
  * Endpoint:
- *   GET /appointments/cj/{cjId}/assigned
+ *   GET /appointments/cj/me/assigned
  *     ?isConfirmed=true
  *     &status=inspection_pending
  *     &appointmentId=20000000000001
  *     &dateFrom=2026-06-01
  *     &dateTo=2026-06-30
  *
- * The Authorization bearer token is attached automatically by httpClient
- * (see App.tsx → setAuthTokenProvider). `cjId` is currently static ('1');
- * swap it for the real id once it's available from auth/profile.
+ * The `cj/me` segment resolves the CJ from the bearer token, so no static id
+ * is needed. The Authorization header is attached automatically by httpClient
+ * (see App.tsx → setAuthTokenProvider).
  */
 
 import { ENDPOINTS } from './endpoints';
@@ -36,9 +36,6 @@ const STATUS_BY_TAB: Record<Exclude<AppointmentTab, 'ALL'>, string> = {
   QC_PENDING: 'qc_pending',
   COMPLETED: 'completed',
 };
-
-/** Static CJ id for now — replace with the real id once available. */
-export const STATIC_CJ_ID = 1;
 
 // ─── Raw API response shapes ─────────────────────────────────────────────────
 
@@ -125,8 +122,6 @@ export interface FetchAppointmentsParams {
   tab: AppointmentTab;
   /** When set (search), only `appointmentId` + `isConfirmed=true` are sent. */
   appointmentId?: string;
-  /** Override the static CJ id if needed. */
-  cjId?: string | number;
   signal?: AbortSignal;
 }
 
@@ -175,29 +170,36 @@ export function buildAppointmentQuery(params: FetchAppointmentsParams): string {
   const sevenAfter = toISODate(addDays(today, 7));
 
   switch (tab) {
-    case 'PENDING':
-      return buildQuery({
-        isConfirmed: true,
-        status: STATUS_BY_TAB.PENDING,
-        dateFrom: sevenBefore,
-        dateTo: sevenAfter,
-      });
-    case 'QC_PENDING':
-      return buildQuery({
-        isConfirmed: true,
-        status: STATUS_BY_TAB.QC_PENDING,
-        dateFrom: sevenBefore,
-      });
-    case 'COMPLETED':
-      return buildQuery({
-        isConfirmed: true,
-        status: STATUS_BY_TAB.COMPLETED,
-        dateFrom: sevenBefore,
-      });
-    case 'ALL':
-    default:
-      return buildQuery({ isConfirmed: true });
-  }
+  case 'PENDING':
+    return buildQuery({
+      isConfirmed: true,
+      status: STATUS_BY_TAB.PENDING,
+      dateFrom: sevenBefore,
+      dateTo: sevenAfter,
+    });
+
+  case 'QC_PENDING':
+    return buildQuery({
+      isConfirmed: true,
+      status: STATUS_BY_TAB.QC_PENDING,
+      dateFrom: sevenBefore,
+    });
+
+  case 'COMPLETED':
+    return buildQuery({
+      isConfirmed: true,
+      status: STATUS_BY_TAB.COMPLETED,
+      dateFrom: sevenBefore,
+    });
+
+  case 'ALL':
+  default:
+    return buildQuery({
+      isConfirmed: true,
+      dateFrom: sevenBefore,
+      dateTo: sevenAfter,
+    });
+}
 }
 
 // ─── Mapping helpers ─────────────────────────────────────────────────────────
@@ -316,9 +318,8 @@ export const appointmentsService = {
    * them into InspectionLead objects ready for the dashboard list.
    */
   async fetchAssigned(params: FetchAppointmentsParams): Promise<InspectionLead[]> {
-    const cjId = params.cjId ?? STATIC_CJ_ID;
     const query = buildAppointmentQuery(params);
-    const url = `${ENDPOINTS.ASSIGNED_APPOINTMENTS(cjId)}${query}`;
+    const url = `${ENDPOINTS.ASSIGNED_APPOINTMENTS}${query}`;
 
     console.log('[AppointmentsService] 📥 Fetching assigned appointments:', url);
 

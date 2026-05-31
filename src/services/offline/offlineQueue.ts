@@ -20,7 +20,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { ENDPOINTS } from '../api/endpoints';
 import { httpPost } from '../api/httpClient';
 
-const STORAGE_KEY = '@cars24:offline_write_queue_v1';
+const STORAGE_KEY = '@autoinspectai:offline_write_queue_v1';
 
 interface BaseTask {
   id: string;

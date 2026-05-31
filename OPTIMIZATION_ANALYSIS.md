@@ -31,7 +31,7 @@ Your codebase implements a **highly optimized** architecture that solves critica
 
 **Symptom:**
 ```
-Input dispatching timed out (com.cars24/MainActivity is not responding.
+Input dispatching timed out (com.autoinspectai/MainActivity is not responding.
 Waited 10005ms for FocusEvent)
 errorType=anr
 ```

@@ -23,11 +23,17 @@ export const ENDPOINTS = {
   /** Presigned URL for S3 upload. */
   PRESIGNED_UPLOAD: `${API_BASE_URL}/media/presign-upload`,
   /**
-   * Appointments assigned to a CJ (the leads listing on the home screen).
-   * `cjId` is currently static ('1') — swap to the real id once available.
+   * Appointments assigned to the authenticated CJ (the leads listing).
+   * Uses `cj/me` — the backend resolves the CJ from the bearer token, so no
+   * static CJ id is needed.
    */
-  ASSIGNED_APPOINTMENTS: (cjId: string | number) =>
-    `${API_BASE_URL}/appointments/cj/${cjId}/assigned`,
+  ASSIGNED_APPOINTMENTS: `${API_BASE_URL}/appointments/cj/me/assigned`,
+  /** Employee auth — exchange a Firebase ID token for backend JWTs. */
+  AUTH_LOGIN: `${API_BASE_URL}/auth/cj/login`,
+  /** Employee auth — get a new access token from a refresh token. */
+  AUTH_REFRESH: `${API_BASE_URL}/auth/cj/refresh`,
+  /** Employee auth — revoke the refresh token (logout). */
+  AUTH_LOGOUT: `${API_BASE_URL}/auth/cj/logout`,
 } as const;
 
 if (__DEV__) {

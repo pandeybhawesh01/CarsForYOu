@@ -1,4 +1,4 @@
-# Cars24 Inspection App - Project Context
+# autoinspectai Inspection App - Project Context
 
 This file is the single source of truth for the inspection app, media capture behavior, and the fixes that were documented in the deleted markdown files.
 
@@ -77,10 +77,10 @@ If you need to add section-specific logic:
 3. No code changes required - fully dynamic!
 
 ### Catalog service location
-`Cars24/src/services/api/catalogService.ts`
+`autoinspectai/src/services/api/catalogService.ts`
 
 ### ViewModel location
-`Cars24/src/viewmodels/catalogViewModel.ts`
+`autoinspectai/src/viewmodels/catalogViewModel.ts`
 
 ### Shared rendering helpers
 The following pure functions are duplicated across step screens (Step1, Step2, Step3, Step4).

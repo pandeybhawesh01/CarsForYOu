@@ -720,7 +720,7 @@ Wasted backend calls; slower section first-render after cold start.
 Persist the cache to AsyncStorage keyed by `${appointmentId}:${sectionKey}`. On cold start, hydrate the in-memory cache, but honor `expiresAt` — if all entries are expired, drop them.
 
 ```ts
-const STORAGE_KEY = '@cars24:presigned_url_cache_v1';
+const STORAGE_KEY = '@autoinspectai:presigned_url_cache_v1';
 
 async hydrate() {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -764,7 +764,7 @@ Build a small retry queue:
 
 ## H-23. No data-version migration for AsyncStorage entries
 
-**Where:** `src/services/cache/catalogCache.ts` (cache key `@cars24:inspection_catalog_v1`)
+**Where:** `src/services/cache/catalogCache.ts` (cache key `@autoinspectai:inspection_catalog_v1`)
 
 **What's wrong**
 The catalog cache key has `_v1` baked in but there's no migration path. If `NormalisedCatalog`'s shape changes in a future release (say, adds a required field), old entries written by the previous app version stay around until TTL expires. The shape mismatch is caught reactively by `isValidCatalog` and the entry is wiped — but the cost is a cache miss on the first launch after upgrade.
