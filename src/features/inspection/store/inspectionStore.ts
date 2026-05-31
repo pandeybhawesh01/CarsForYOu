@@ -11,11 +11,23 @@ interface InspectionState {
   currentSession: InspectionSession | null;
   isLoading: boolean;
   error: string | null;
+  /**
+   * Draft load status — drives whether auto-save is allowed.
+   *   'idle'    : nothing loaded yet
+   *   'loading' : load in flight
+   *   'loaded'  : a real draft was applied — safe to auto-save
+   *   'empty'   : confirmed no draft on server — safe to auto-save (fresh)
+   *   'failed'  : load errored — auto-save MUST stay paused to avoid wiping
+   *               whatever is really stored in Redis
+   */
+  draftStatus: 'idle' | 'loading' | 'loaded' | 'empty' | 'failed';
 }
 
 interface InspectionActions {
   setCurrentLead: (lead: InspectionLead, catalogSections: Array<{ section: string; label: string }>) => void;
   startInspection: (lead: InspectionLead, catalogSections: Array<{ section: string; label: string }>) => Promise<void>;
+  /** Re-attempt loading the draft after a failed load (called from the "Retry" banner). */
+  retryLoadDraft: () => Promise<void>;
   /** Dynamic step: write to any section by its catalog section key string */
   updateFormDataBySection: (sectionKey: string, data: Record<string, unknown>) => void;
   /** Dynamic step: mark complete by catalog section key string */
@@ -33,6 +45,7 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
   currentSession: null,
   isLoading: false,
   error: null,
+  draftStatus: 'idle',
 
   // Set lead without loading draft (called from dashboard card click)
   setCurrentLead: (lead, catalogSections) => {
@@ -41,62 +54,81 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
       currentLead: lead,
       currentSession: createEmptySession(lead, catalogSections),
       error: null,
+      draftStatus: 'idle',
     });
   },
 
   // Start inspection with draft loading (called from "Start Inspection" button)
   startInspection: async (lead, catalogSections) => {
     console.log('[InspectionStore] 🚀 Starting inspection for lead:', lead.appointmentId);
-    
+
     // Create empty session with dynamic sections if provided
     const emptySession = createEmptySession(lead, catalogSections);
-    
+
     set({
       currentLead: lead,
       currentSession: emptySession,
       error: null,
       isLoading: true,
+      draftStatus: 'loading',
     });
-    
-    // Try to load draft from Redis (non-blocking)
-    void (async () => {
-      try {
-        const draft = await draftService.loadDraft(lead.appointmentId);
 
-        if (draft && draft.formData) {
-          console.log('[InspectionStore] 📥 Draft found! Pre-filling form data...');
-          console.log('[InspectionStore] ℹ️ Draft is already in nested format - no transformation needed');
+    await get().retryLoadDraft();
+  },
 
-          // Draft data is already in nested format - use directly
-          set((state) => {
-            const current = get().currentLead;
-            if (!state.currentSession || !current || current.appointmentId !== lead.appointmentId) {
-              return { isLoading: false };
-            }
+  /**
+   * Loads (or re-loads) the draft for the current lead and applies it.
+   * Used both by startInspection and by the "Retry" banner after a failed load.
+   *
+   * CRITICAL: draftStatus must end as 'failed' if the load errored, so that
+   * useAutoSaveDraft keeps auto-save PAUSED and never overwrites the real
+   * Redis draft with the locally-empty form.
+   */
+  retryLoadDraft: async () => {
+    const lead = get().currentLead;
+    if (!lead) return;
 
-            return {
-              currentSession: {
-                ...state.currentSession,
-                formData: {
-                  ...state.currentSession.formData,
-                  ...draft.formData,
-                },
-              },
-              isLoading: false,
-            };
-          });
+    set({ isLoading: true, draftStatus: 'loading' });
 
-          console.log('[InspectionStore] ✅ Draft loaded and applied');
-        } else {
-          console.log('[InspectionStore] ℹ️ No draft found, starting fresh');
-          set({ isLoading: false });
-        }
-      } catch (error) {
-        console.error('[InspectionStore] ❌ Failed to load draft:', error);
-        // Continue with empty session
+    try {
+      const result = await draftService.loadDraft(lead.appointmentId);
+
+      // Guard against a stale response (user moved to a different lead meanwhile)
+      const stillSameLead = get().currentLead?.appointmentId === lead.appointmentId;
+      if (!stillSameLead) {
         set({ isLoading: false });
+        return;
       }
-    })();
+
+      if (result.status === 'loaded') {
+        console.log('[InspectionStore] 📥 Draft found! Pre-filling form data...');
+        set((state) => {
+          if (!state.currentSession) return { isLoading: false, draftStatus: 'loaded' };
+          return {
+            currentSession: {
+              ...state.currentSession,
+              formData: {
+                ...state.currentSession.formData,
+                ...result.payload.formData,
+              },
+            },
+            isLoading: false,
+            draftStatus: 'loaded',
+          };
+        });
+        console.log('[InspectionStore] ✅ Draft loaded and applied');
+      } else if (result.status === 'empty') {
+        console.log('[InspectionStore] ℹ️ No draft on server — starting fresh, auto-save enabled');
+        set({ isLoading: false, draftStatus: 'empty' });
+      } else {
+        // failed — DO NOT enable auto-save
+        console.warn('[InspectionStore] ⚠️ Draft load failed — auto-save paused until retry');
+        set({ isLoading: false, draftStatus: 'failed' });
+      }
+    } catch (error) {
+      console.error('[InspectionStore] ❌ Unexpected error loading draft:', error);
+      set({ isLoading: false, draftStatus: 'failed' });
+    }
   },
 
   // C-7 / M-7: removed `updateFormData`, `updateFormDataByKey`,
@@ -159,7 +191,7 @@ export const useInspectionStore = create<InspectionStore>((set, get) => ({
     if (apptId) {
       presignedUrlService.clearAppointment(apptId);
     }
-    set({ currentLead: null, currentSession: null, error: null });
+    set({ currentLead: null, currentSession: null, error: null, draftStatus: 'idle' });
   },
 
   setError: (error) => set({ error }),

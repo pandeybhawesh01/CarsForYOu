@@ -185,6 +185,9 @@ export interface CameraControlsProps {
   onStopRecording: () => void;
   onCancel: () => void;
   onToggleFlash: () => void;
+  // Optional gallery shortcut (native-camera style thumbnail button).
+  // When omitted, the gallery button is not rendered.
+  onOpenGallery?: () => void;
 }
 
 export interface CameraPreviewProps {

@@ -64,7 +64,12 @@ export function uploadToS3(
       // Track upload progress
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && onProgress) {
-          const percentage = Math.round((event.loaded / event.total) * 100);
+          // Clamp to 100 — some platforms report loaded > total (headers/encoding),
+          // which would otherwise overshoot past 100%.
+          const percentage = Math.min(
+            100,
+            Math.round((event.loaded / event.total) * 100),
+          );
           onProgress({
             loaded: event.loaded,
             total: event.total,

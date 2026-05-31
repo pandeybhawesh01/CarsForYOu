@@ -258,7 +258,6 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
                 onPress={handleDelete}
                 accessibilityLabel="Delete photo"
                 accessibilityRole="button">
-                <Text style={styles.previewActionIcon}>🗑️</Text>
                 <Text style={styles.previewActionText}>Delete</Text>
               </TouchableOpacity>
               
@@ -267,7 +266,6 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
                 onPress={handleClosePreview}
                 accessibilityLabel="Close preview"
                 accessibilityRole="button">
-                <Text style={styles.previewActionIcon}>✕</Text>
                 <Text style={styles.previewActionText}>Close</Text>
               </TouchableOpacity>
             </View>
@@ -405,6 +403,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     paddingHorizontal: spacing.lg,
     paddingVertical: vs(24),
+    marginBottom: vs(40),
     gap: spacing.base,
   },
   previewActionButton: {
@@ -421,9 +420,6 @@ const styles = StyleSheet.create({
   },
   closeActionButton: {
     backgroundColor: colors.textSecondary,
-  },
-  previewActionIcon: {
-    fontSize: 20,
   },
   previewActionText: {
     fontSize: typography.fontSize.base,

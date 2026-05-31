@@ -54,6 +54,7 @@ import AppInput from '../../../../components/AppInput';
 import ConnectedPhotoCapture from '../../components/Connectedphotocapture';
 import ConnectedVideoCapture from '../../components/Connectedvideocapture';
 import ConnectedGroupCard from '../../components/ConnectedGroupCard';
+import DraftSyncBanner from '../../components/DraftSyncBanner';
 import MultiSelectChips from '../../components/MultiSelectChips';
 import MultiSelectWithSubOptions from '../../components/MultiSelectWithSubOptions';
 import AppButton from '../../../../components/AppButton';
@@ -788,6 +789,7 @@ const DynamicInspectionStep: React.FC<DynamicInspectionStepProps> = ({
     <SafeAreaView style={s.safeArea} edges={['bottom']}>
       <AppHeader title={sectionLabel} subtitle={`Step ${stepNum} of ${totalSections}`} onBack={onBack} />
       <View style={s.progressWrap}>
+        <DraftSyncBanner />
         <ProgressRow filled={totalFilled} total={totalExpected} />
       </View>
       {mergedSections.length > 1 && (

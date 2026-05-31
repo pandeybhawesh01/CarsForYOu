@@ -22,15 +22,27 @@ interface UseAutoSaveDraftOptions {
   catalog: NormalisedCatalog;        // never null — use selectCatalog at call site (C-4)
   enabled: boolean;
   saveOnUnmount?: boolean;
+  /**
+   * Gate: only auto-save once we KNOW the server state.
+   * 'loaded'/'empty' → safe to save. 'failed'/'loading'/'idle' → DO NOT save,
+   * otherwise an empty local form would overwrite a real draft in Redis.
+   */
+  draftStatus: 'idle' | 'loading' | 'loaded' | 'empty' | 'failed';
 }
 
-export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = false }: UseAutoSaveDraftOptions) {
+export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = false, draftStatus }: UseAutoSaveDraftOptions) {
   const lastSavedDataRef = useRef<string>('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Auto-save is only safe when we have confirmed the server state.
+  const canAutoSave = draftStatus === 'loaded' || draftStatus === 'empty';
+
   useEffect(() => {
-    // Skip if disabled, no session, or catalog hasn't loaded yet (sections empty)
-    if (!enabled || !session || catalog.sections.length === 0) {
+    // Skip if disabled, no session, catalog not loaded, OR the draft load
+    // hasn't succeeded yet. The last condition is the data-loss guard: if the
+    // draft failed to load we must NOT save, or the empty local form would
+    // overwrite whatever is really stored in Redis.
+    if (!enabled || !session || catalog.sections.length === 0 || !canAutoSave) {
       // Clear interval if disabled or no session
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -91,7 +103,7 @@ export function useAutoSaveDraft({ session, catalog, enabled, saveOnUnmount = fa
         });
       }
     };
-  }, [enabled, session, catalog, saveOnUnmount]);
+  }, [enabled, session, catalog, saveOnUnmount, canAutoSave]);
 
   // Manual save function (can be called on important events)
   const saveNow = async () => {

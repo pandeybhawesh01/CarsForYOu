@@ -9,7 +9,7 @@
  */
 
 import { ENDPOINTS } from './endpoints';
-import { httpGet, httpPost } from './httpClient';
+import { httpGet, httpPost, ApiError } from './httpClient';
 import { offlineQueue } from '../offline/offlineQueue';
 
 export interface DraftPayload {
@@ -23,6 +23,20 @@ export interface DraftResponse {
   message?: string;
   data?: DraftPayload;
 }
+
+/**
+ * Result of a draft load attempt.
+ *
+ * The distinction is critical (fixes the empty-overwrite data-loss bug):
+ *   - 'loaded' : a real draft was found — prefill it
+ *   - 'empty'  : server replied OK but there is genuinely no draft — safe to start fresh AND safe to auto-save
+ *   - 'failed' : network / server / Redis error — we DON'T know what's stored,
+ *                so the caller must NOT auto-save (an empty save would wipe real data)
+ */
+export type DraftLoadResult =
+  | { status: 'loaded'; payload: DraftPayload }
+  | { status: 'empty' }
+  | { status: 'failed' };
 
 export const draftService = {
   /**
@@ -49,38 +63,50 @@ export const draftService = {
   },
 
   /**
-   * Load draft from Redis (on inspection start)
-   * Returns null if no draft exists or on error
+   * Load draft from Redis (on inspection start).
+   *
+   * Returns a discriminated result so the caller can tell apart
+   * "no draft exists" (safe to start fresh) from "load failed"
+   * (must NOT auto-save, or we'd overwrite real data with empties).
    */
-  async loadDraft(appointmentId: string): Promise<DraftPayload | null> {
+  async loadDraft(appointmentId: string): Promise<DraftLoadResult> {
     try {
       console.log('[DraftService] 📥 Loading draft for appointment:', appointmentId);
-      
+
       const response = await httpGet<DraftResponse>(ENDPOINTS.DRAFT_LOAD(appointmentId));
-      
+
       if (response.success && response.data) {
         console.log('[DraftService] ✅ Draft loaded successfully');
-        
-        // Backend returns data directly, not nested in formData
+
+        // Backend returns data directly, not nested in formData.
         // Extract the actual form data (exclude metadata like savedAt, ttlSeconds, etc.)
         const { appointmentId: apptId, savedAt, ttlSeconds, ttlDays, additionalImages, ...formData } = response.data as any;
-        
+
         console.log('[DraftService] 📊 Draft data keys:', Object.keys(formData));
-        
-        // Return in the format expected by the app
+
         return {
-          appointmentId: apptId || appointmentId,
-          formData: formData as Record<string, unknown>,
-          additionalImages: additionalImages || [],
+          status: 'loaded',
+          payload: {
+            appointmentId: apptId || appointmentId,
+            formData: formData as Record<string, unknown>,
+            additionalImages: additionalImages || [],
+          },
         };
-      } else {
-        console.log('[DraftService] ℹ️ No draft found for this appointment');
-        return null;
       }
+
+      // Backend contract: "no draft" is a 200 with success:true + data:null
+      // (and usually exists:false). That's a CONFIRMED empty — safe to start
+      // fresh and safe to auto-save.
+      console.log('[DraftService] ℹ️ No draft for this appointment (confirmed empty)');
+      return { status: 'empty' };
     } catch (error) {
-      // If draft doesn't exist or API fails, return null (start fresh)
-      console.log('[DraftService] ℹ️ No draft available, starting fresh');
-      return null;
+      // ANY thrown error — including 404, 500, timeout, network — means we do
+      // NOT know what's stored in Redis. The backend returns 200 for the
+      // genuine "no draft" case, so a 404 here is a real problem (bad route /
+      // bad appointment id), not an empty draft. Treat everything as failed so
+      // auto-save stays PAUSED and can't overwrite real data.
+      console.warn('[DraftService] ⚠️ Draft load FAILED (will not auto-save until retried):', error);
+      return { status: 'failed' };
     }
   },
 

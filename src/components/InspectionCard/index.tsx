@@ -23,14 +23,17 @@ const InspectionCard: React.FC<InspectionCardProps> = ({ lead, onPress }) => {
   const handlePress = useCallback(() => onPress(lead), [lead, onPress]);
 
   const scheduledDate = new Date(lead.scheduledAt);
-  const timeStr = scheduledDate.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
   const dateStr = scheduledDate.toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
   });
+  // Prefer the appointment slot (e.g. "10:00-12:00"); fall back to time.
+  const slotStr = lead.slot
+    ? lead.slot
+    : scheduledDate.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
 
   return (
     <TouchableOpacity
@@ -47,7 +50,7 @@ const InspectionCard: React.FC<InspectionCardProps> = ({ lead, onPress }) => {
             {lead.car.year} {lead.car.make} {lead.car.model}
           </Text>
           <Text style={styles.variant} numberOfLines={1}>
-            {lead.car.variant} • {lead.car.fuelType}
+            {lead.car.variant} • {lead.car.fuelType} • {lead.car.transmission}
           </Text>
         </View>
         <StatusBadge status={lead.status} />
@@ -60,16 +63,15 @@ const InspectionCard: React.FC<InspectionCardProps> = ({ lead, onPress }) => {
       <View style={styles.details}>
         <DetailItem icon="📋" label="Appt ID" value={lead.appointmentId} />
         <DetailItem icon="📍" label="City" value={lead.owner.city} />
-        <DetailItem icon="⏰" label="Time" value={`${dateStr} ${timeStr}`} />
+        <DetailItem icon="⏰" label="Slot" value={`${dateStr} • ${slotStr}`} />
       </View>
 
       {/* Footer */}
       <View style={styles.footer}>
         <View style={styles.kmRow}>
-          <Text style={styles.kmText}>
-            🏁 {lead.car.kmDriven.toLocaleString('en-IN')} km
+          <Text style={styles.regNumberText} numberOfLines={1}>
+            🚙 {lead.car.registrationNumber}
           </Text>
-          <Text style={styles.regText}>{lead.car.registrationNumber}</Text>
         </View>
         <View style={styles.chevronContainer}>
           <Text style={styles.chevron}>›</Text>
@@ -176,15 +178,10 @@ const styles = StyleSheet.create({
   kmRow: {
     flex: 1,
   },
-  kmText: {
+  regNumberText: {
     fontSize: typography.fontSize.sm,
     color: colors.textSecondary,
-    fontWeight: typography.fontWeight.medium,
-  },
-  regText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.textTertiary,
-    marginTop: vs(2),
+    fontWeight: typography.fontWeight.regular,
   },
   chevronContainer: {
     width: hs(28),

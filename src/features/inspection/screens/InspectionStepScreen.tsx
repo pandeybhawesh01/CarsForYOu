@@ -24,6 +24,7 @@ const InspectionStepScreen: React.FC<Props> = ({ navigation, route }) => {
   const { stepIndex, inspectionId } = route.params;
   // C-1: scoped selector
   const currentSession = useInspectionStore((s) => s.currentSession);
+  const draftStatus = useInspectionStore((s) => s.draftStatus);
   const catalog = useCatalogViewModel(selectCatalog);
   const loadingState = useCatalogViewModel((s) => s.loadingState);
 
@@ -32,6 +33,7 @@ const InspectionStepScreen: React.FC<Props> = ({ navigation, route }) => {
     catalog,
     enabled: !!currentSession,
     saveOnUnmount: false,
+    draftStatus,
   });
 
   const sections = catalog.sections;

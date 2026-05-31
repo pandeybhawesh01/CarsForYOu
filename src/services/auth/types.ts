@@ -22,6 +22,7 @@ export interface AuthService {
   loginWithGoogle: () => Promise<AuthUser>;
   logout: () => Promise<void>;
   getCurrentUser: () => AuthUser | null;
+  getIdToken: (forceRefresh?: boolean) => Promise<string | null>;
   onAuthStateChanged: (callback: (user: AuthUser | null) => void) => () => void;
 }
 

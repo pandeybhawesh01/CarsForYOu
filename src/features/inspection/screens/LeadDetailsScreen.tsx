@@ -148,20 +148,18 @@ const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
-  const { car, owner, location, appointmentId, status, scheduledAt } = currentLead;
-  const scheduled = new Date(scheduledAt).toLocaleString('en-IN', {
+  const { car, owner, location, appointmentId, status, scheduledAt, slot } = currentLead;
+  const scheduledDate = new Date(scheduledAt).toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   });
+  const scheduled = slot ? `${scheduledDate} • ${slot}` : scheduledDate;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <AppHeader
         title="Lead Details"
-        subtitle={`Appt: ${appointmentId}`}
         onBack={handleBack}
         rightAction={<StatusBadge status={status} />}
       />
@@ -182,7 +180,7 @@ const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.tagsRow}>
             <Tag label={car.fuelType} />
             <Tag label={car.transmission} />
-            <Tag label={`${car.kmDriven.toLocaleString('en-IN')} km`} />
+            <Tag label={`Appt: ${appointmentId}`} />
           </View>
         </View>
 
@@ -191,9 +189,6 @@ const LeadDetailsScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.section}>
           <DetailRow label="Registration No." value={car.registrationNumber} icon="🔖" />
           <DetailRow label="Registration State" value={car.registrationState} icon="📍" />
-          <DetailRow label="Color" value={car.color} icon="🎨" />
-          <DetailRow label="Owner Count" value={`${car.ownerCount}${car.ownerCount === 1 ? 'st' : car.ownerCount === 2 ? 'nd' : 'rd'} Owner`} icon="👤" />
-          <DetailRow label="Insurance Valid" value={car.insuranceValidity} icon="🛡️" />
         </View>
 
         {/* Owner Details */}

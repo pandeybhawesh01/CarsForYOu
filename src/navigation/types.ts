@@ -1,5 +1,4 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 
 // Root Stack
 export type RootStackParamList = {
@@ -8,7 +7,8 @@ export type RootStackParamList = {
   InspectionNavigator: { inspectionId: string };
 };
 
-// Bottom Tabs
+// Main Stack (Dashboard + Profile). Tab bar removed — Profile is reached
+// by tapping the avatar on the dashboard.
 export type MainTabParamList = {
   Dashboard: undefined;
   Profile: undefined;
@@ -28,7 +28,7 @@ export type RootStackScreenProps<T extends keyof RootStackParamList> =
   NativeStackScreenProps<RootStackParamList, T>;
 
 export type MainTabScreenProps<T extends keyof MainTabParamList> =
-  BottomTabScreenProps<MainTabParamList, T>;
+  NativeStackScreenProps<MainTabParamList, T>;
 
 export type InspectionStackScreenProps<T extends keyof InspectionStackParamList> =
   NativeStackScreenProps<InspectionStackParamList, T>;

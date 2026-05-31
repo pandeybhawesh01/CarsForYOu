@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import { colors } from '../../../constants/colors';
-import { typography } from '../../../constants/typography';
 import { hs, vs } from '../../../utils/scaling';
 import type { CameraControlsProps } from '../types';
 import { RecordingTimer } from './RecordingTimer';
@@ -28,8 +27,8 @@ const CameraControls: React.FC<CameraControlsProps> = ({
   onCapture,
   onStartRecording,
   onStopRecording,
-  onCancel,
   onToggleFlash,
+  onOpenGallery,
 }) => {
   // Flash icon based on current mode
   const flashIcon =
@@ -68,17 +67,28 @@ const CameraControls: React.FC<CameraControlsProps> = ({
         </View>
       )}
 
-      {/* Bottom row: cancel + main action */}
+      {/* Bottom row: gallery + main action */}
       <View style={styles.bottomRow}>
-        {/* Cancel button */}
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={onCancel}
-          accessible
-          accessibilityLabel="Cancel and close camera"
-          accessibilityRole="button">
-          <Text style={styles.cancelText}>✕</Text>
-        </TouchableOpacity>
+        {/* Gallery shortcut (native-camera style) on the left.
+            Hidden while recording, and only shown when a handler is provided. */}
+        {onOpenGallery && !isRecording ? (
+          <TouchableOpacity
+            style={styles.galleryButton}
+            onPress={onOpenGallery}
+            accessible
+            accessibilityLabel={
+              mode === 'photo'
+                ? 'Choose a photo from gallery'
+                : 'Choose a video from gallery'
+            }
+            accessibilityHint="Double tap to open your gallery"
+            accessibilityRole="button">
+            <Text style={styles.galleryIcon}>🖼️</Text>
+          </TouchableOpacity>
+        ) : (
+          /* Spacer to keep the main button centered */
+          <View style={styles.spacer} />
+        )}
 
         {/* Main action button (capture / record / stop) */}
         <TouchableOpacity
@@ -112,7 +122,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({
           )}
         </TouchableOpacity>
 
-        {/* Spacer to balance layout */}
+        {/* Spacer on the right to keep the main button centered */}
         <View style={styles.spacer} />
       </View>
     </View>
@@ -141,6 +151,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    // Lift the gallery + shutter row up from the bottom edge.
+    marginBottom: vs(20),
   },
   flashButton: {
     width: 44,
@@ -153,19 +165,6 @@ const styles = StyleSheet.create({
   flashIcon: {
     fontSize: 16,
     color: colors.surface,
-  },
-  cancelButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelText: {
-    fontSize: 18,
-    color: colors.surface,
-    fontWeight: typography.fontWeight.bold,
   },
   mainButton: {
     width: 72,
@@ -199,6 +198,20 @@ const styles = StyleSheet.create({
   },
   spacer: {
     width: 44,
+  },
+  galleryButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+    overflow: 'hidden',
+  },
+  galleryIcon: {
+    fontSize: 22,
   },
 });
 

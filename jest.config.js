@@ -8,5 +8,6 @@ module.exports = {
     'react-native-fs': '<rootDir>/__mocks__/react-native-fs.ts',
     'react-native-vision-camera': '<rootDir>/__mocks__/react-native-vision-camera.ts',
     'react-native-video': '<rootDir>/__mocks__/react-native-video.ts',
+    'react-native-image-picker': '<rootDir>/__mocks__/react-native-image-picker.ts',
   },
 };

@@ -27,41 +27,27 @@ import React, { memo, useCallback, useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useInspectionStore } from '../store/inspectionStore';
 import { getByPath, stripSectionPrefix } from '../utils/nestedFormData';
-import type {
-  CatalogField,
-  CatalogGroup,
-  CatalogInput,
-  CatalogNode,
-} from '../../../services/api/types';
+import {
+  countNodeProgress,
+  getInputs,
+  getChildren,
+  type ProgressAcc,
+} from '../utils/inspectionProgress';
+import type { CatalogGroup, CatalogNode } from '../../../services/api/types';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
 import { spacing, verticalSpacing, borderRadius } from '../../../constants/spacing';
 
-// ── Local structural helpers (self-contained; kept in sync with DynamicInspectionStep) ──
-
-function getInputs(node: CatalogNode): CatalogInput[] {
-  const g = node as CatalogGroup;
-  if (Array.isArray(g.inputs) && g.inputs.length > 0) return g.inputs;
-  const f = node as CatalogField;
-  if (f.inputType) {
-    return [{
-      inputType: f.inputType,
-      dataType: f.dataType ?? 'STRING',
-      allowsMultiple: f.allowsMultiple ?? false,
-      options: f.options ?? [],
-    }];
-  }
-  return [];
-}
-
-function getChildren(node: CatalogNode): CatalogNode[] {
-  return (node as CatalogGroup).children ?? [];
+interface PhotoBlock {
+  photos?: Array<{ url?: string; capturedAt?: string }>;
 }
 
 /**
  * Walk this group (and descendants) and collect every IMAGE upload slot's
  * dotted storage path. Structural only — depends on the catalog node, never
  * on formData — so it's memoised by `node` reference.
+ *
+ * Used ONLY for the card thumbnail (we show the first captured photo).
  */
 function collectImagePaths(node: CatalogNode): string[] {
   const paths: string[] = [];
@@ -81,10 +67,6 @@ function collectImagePaths(node: CatalogNode): string[] {
   return paths;
 }
 
-interface PhotoBlock {
-  photos?: Array<{ url?: string; capturedAt?: string }>;
-}
-
 interface ConnectedGroupCardProps {
   node: CatalogGroup;
   label: string;
@@ -99,6 +81,8 @@ const ConnectedGroupCard: React.FC<ConnectedGroupCardProps> = ({
   onPress,
 }) => {
   // Structural — recomputed only if the catalog node changes (≈ never).
+  // imagePaths drives the card thumbnail. The X/Y count is computed live in
+  // the selector because it depends on which options are currently selected.
   const imagePaths = useMemo(() => collectImagePaths(node), [node]);
 
   // Scoped selector → single primitive signature string.
@@ -106,23 +90,28 @@ const ConnectedGroupCard: React.FC<ConnectedGroupCardProps> = ({
     useCallback(
       (state) => {
         const sectionData = (state.currentSession?.formData[sectionKey] ?? {}) as Record<string, unknown>;
+
+        // Thumbnail: first captured photo across the group's image slots.
         let firstUrl = '';
         let firstCapturedAt = '';
-        let filled = 0;
         for (const p of imagePaths) {
           const block = getByPath(sectionData, stripSectionPrefix(p)) as PhotoBlock | undefined;
           const photo = block?.photos?.[0];
           if (photo?.url) {
-            filled++;
-            if (!firstUrl) {
-              firstUrl = photo.url;
-              firstCapturedAt = photo.capturedAt ?? '';
-            }
+            firstUrl = photo.url;
+            firstCapturedAt = photo.capturedAt ?? '';
+            break;
           }
         }
-        return `${firstUrl}|${firstCapturedAt}|${filled}|${imagePaths.length}`;
+
+        // Progress: count EVERY active field (including sub-fields revealed by
+        // the current selection), not just images.
+        const acc: ProgressAcc = { filled: 0, total: 0 };
+        countNodeProgress(node, sectionData, acc);
+
+        return `${firstUrl}|${firstCapturedAt}|${acc.filled}|${acc.total}`;
       },
-      [sectionKey, imagePaths],
+      [sectionKey, imagePaths, node],
     ),
   );
 
@@ -145,8 +134,8 @@ const ConnectedGroupCard: React.FC<ConnectedGroupCardProps> = ({
   const hasImage = Boolean(thumbnailUrl);
   const isComplete = totalCount > 0 && filledCount === totalCount;
   const subtitle = totalCount > 0
-    ? (isComplete ? '✓ All captured' : `${filledCount}/${totalCount} captured`)
-    : (filledCount > 0 ? '✓ Submitted' : 'Tap to capture & review');
+    ? (isComplete ? '✓ All completed' : `${filledCount}/${totalCount} completed`)
+    : (filledCount > 0 ? '✓ Submitted' : 'Tap to fill & review');
 
   return (
     <TouchableOpacity

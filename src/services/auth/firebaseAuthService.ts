@@ -111,6 +111,23 @@ class FirebaseAuthService implements AuthService {
   }
 
   /**
+   * Get the Firebase ID token for the current user.
+   * Used as the Bearer token for authenticated backend requests.
+   * @param forceRefresh - force a token refresh instead of using the cached one
+   * @returns Promise<string | null> - the JWT, or null if no user is signed in
+   */
+  async getIdToken(forceRefresh = false): Promise<string | null> {
+    const firebaseUser = auth().currentUser;
+    if (!firebaseUser) return null;
+    try {
+      return await firebaseUser.getIdToken(forceRefresh);
+    } catch (error) {
+      console.warn('[FirebaseAuthService] Failed to get ID token:', error);
+      return null;
+    }
+  }
+
+  /**
    * Listen to authentication state changes
    * @param callback - Function to call when auth state changes
    * @returns Unsubscribe function

@@ -22,6 +22,12 @@ export const ENDPOINTS = {
   DRAFT_LOAD: (appointmentId: string) => `${API_BASE_URL}/forms/inspection-report/draft/${appointmentId}`,
   /** Presigned URL for S3 upload. */
   PRESIGNED_UPLOAD: `${API_BASE_URL}/media/presign-upload`,
+  /**
+   * Appointments assigned to a CJ (the leads listing on the home screen).
+   * `cjId` is currently static ('1') — swap to the real id once available.
+   */
+  ASSIGNED_APPOINTMENTS: (cjId: string | number) =>
+    `${API_BASE_URL}/appointments/cj/${cjId}/assigned`,
 } as const;
 
 if (__DEV__) {

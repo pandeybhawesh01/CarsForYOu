@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import type { InspectionStackScreenProps } from '../../../navigation/types';
 import { useInspectionStore } from '../store/inspectionStore';
 import type { InspectionStep } from '../types';
@@ -20,15 +21,29 @@ import { theme } from '../../../theme';
 import { hs, vs } from '../../../utils/scaling';
 import { useAutoSaveDraft } from '../../../hooks/useAutoSaveDraft';
 import { useCatalogViewModel, selectCatalog } from '../../../viewmodels/catalogViewModel';
+import { computeSectionProgress, type SectionProgress } from '../utils/inspectionProgress';
 
 type Props = InspectionStackScreenProps<'InspectionHome'>;
 
 const SectionCard: React.FC<{
   step: InspectionStep;
   index: number;
+  progress?: SectionProgress;
   onPress: (index: number) => void;
-}> = ({ step, index, onPress }) => {
+}> = ({ step, index, progress, onPress }) => {
   const handlePress = useCallback(() => onPress(index), [index, onPress]);
+
+  // Heading-level progress (e.g. "1/2 sections"). Falls back to the legacy
+  // boolean text when this section has no countable headings.
+  const hasProgress = Boolean(progress && progress.total > 0);
+  const allHeadingsDone = hasProgress && progress!.completed === progress!.total;
+  const isComplete = step.isCompleted || allHeadingsDone;
+
+  const subtitle = hasProgress
+    ? (allHeadingsDone
+        ? 'Completed ✓'
+        : `${progress!.completed}/${progress!.total} completed`)
+    : (step.isCompleted ? 'Completed ✓' : 'Tap to fill');
 
   return (
     <TouchableOpacity
@@ -40,11 +55,9 @@ const SectionCard: React.FC<{
       </View>
       <View style={styles.sectionContent}>
         <Text style={styles.sectionTitle}>{step.title}</Text>
-        <Text style={styles.sectionSubtitle}>
-          {step.isCompleted ? 'Completed ✓' : 'Tap to fill'}
-        </Text>
+        <Text style={styles.sectionSubtitle}>{subtitle}</Text>
       </View>
-      {step.isCompleted ? (
+      {isComplete ? (
         <View style={styles.completedBadge}>
           <Text style={styles.completedIcon}>✓</Text>
         </View>
@@ -61,6 +74,7 @@ const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
   // C-1: scoped selectors instead of whole-store destructure.
   const currentLead = useInspectionStore((s) => s.currentLead);
   const currentSession = useInspectionStore((s) => s.currentSession);
+  const draftStatus = useInspectionStore((s) => s.draftStatus);
   const catalog = useCatalogViewModel(selectCatalog);
   
   // Auto-save with unmount save enabled (for app close or back to dashboard)
@@ -69,6 +83,7 @@ const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
     catalog,
     enabled: !!currentSession,
     saveOnUnmount: true, // Save on unmount when leaving inspection flow
+    draftStatus,
   });
 
   const completedCount = useMemo(
@@ -78,6 +93,31 @@ const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
   const allComplete = useMemo(
     () => completedCount === (currentSession?.steps.length ?? 6),
     [completedCount, currentSession],
+  );
+
+  // Heading-level progress per section ("doors", "accessories", ...).
+  // Computed ONLY when this screen gains focus — never during field entry
+  // (which happens on the step screen). Cheap data walk, off the typing path.
+  const [sectionProgress, setSectionProgress] = useState<Record<string, SectionProgress>>({});
+
+  useFocusEffect(
+    useCallback(() => {
+      const formData = currentSession?.formData;
+      if (!formData || catalog.sections.length === 0) return;
+
+      const next: Record<string, SectionProgress> = {};
+      for (const section of catalog.sections) {
+        try {
+          const sectionData = (formData[section.section as keyof typeof formData] ?? {}) as Record<string, unknown>;
+          next[section.section] = computeSectionProgress(section, sectionData);
+        } catch (err) {
+          // Never let a single malformed section crash the home screen —
+          // just skip its progress (card falls back to the legacy text).
+          console.warn('[InspectionHome] progress compute failed for', section.section, err);
+        }
+      }
+      setSectionProgress(next);
+    }, [currentSession?.formData, catalog.sections]),
   );
 
   const handleBack = useCallback(() => navigation.goBack(), [navigation]);
@@ -106,9 +146,14 @@ const InspectionHomeScreen: React.FC<Props> = ({ navigation }) => {
 
   const renderStep = useCallback(
     ({ item, index }: { item: InspectionStep; index: number }) => (
-      <SectionCard step={item} index={index} onPress={handleStepPress} />
+      <SectionCard
+        step={item}
+        index={index}
+        progress={sectionProgress[item.id as unknown as string]}
+        onPress={handleStepPress}
+      />
     ),
-    [handleStepPress],
+    [handleStepPress, sectionProgress],
   );
 
   const keyExtractor = useCallback((item: InspectionStep) => item.id, []);

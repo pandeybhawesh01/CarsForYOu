@@ -14,9 +14,33 @@ interface RequestOptions {
   signal?: AbortSignal;
   /** Request timeout in ms; default 30000. Set 0 to disable. */
   timeoutMs?: number;
+  /** Skip attaching the Authorization bearer token for this request. */
+  skipAuth?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Auth token provider. Registered once at app startup (see App.tsx) so the
+ * HTTP client can attach a `Bearer` token to every request without importing
+ * the auth service directly (avoids a circular dependency).
+ */
+type TokenProvider = () => Promise<string | null> | string | null;
+let tokenProvider: TokenProvider | null = null;
+
+export function setAuthTokenProvider(provider: TokenProvider | null): void {
+  tokenProvider = provider;
+}
+
+async function resolveAuthToken(): Promise<string | null> {
+  if (!tokenProvider) return null;
+  try {
+    return await tokenProvider();
+  } catch (err) {
+    console.warn('[HTTP] Failed to resolve auth token:', err);
+    return null;
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -44,13 +68,22 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
   }
 
   try {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-API-Key': API_KEY,
+    };
+
+    if (!options.skipAuth) {
+      const token = await resolveAuthToken();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    }
+
     const response = await fetch(url, {
       method,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'X-API-Key': API_KEY,
-      },
+      headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       signal: ac.signal,
     });

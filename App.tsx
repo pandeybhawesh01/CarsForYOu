@@ -8,6 +8,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { configureGoogleSignIn } from './src/services/auth';
+import { firebaseAuthService } from './src/services/auth';
+import { setAuthTokenProvider } from './src/services/api/httpClient';
 import { useCatalogViewModel } from './src/viewmodels/catalogViewModel';
 import { offlineQueue } from './src/services/offline/offlineQueue';
 
@@ -31,6 +33,9 @@ const CatalogBootstrap: React.FC = () => {
 const GoogleSignInConfig: React.FC = () => {
   useEffect(() => {
     configureGoogleSignIn();
+    // Wire the HTTP client to the Firebase ID token so every API request
+    // automatically carries an `Authorization: Bearer <token>` header.
+    setAuthTokenProvider(() => firebaseAuthService.getIdToken());
   }, []);
 
   return null;

@@ -76,6 +76,8 @@ export interface InspectionLead {
   id: string;
   appointmentId: string;
   scheduledAt: string;
+  /** Appointment time slot, e.g. "10:00-12:00". From appointment.slot. */
+  slot?: string;
   status: InspectionStatus;
   car: CarDetails;
   owner: LeadOwner;

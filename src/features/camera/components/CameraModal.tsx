@@ -5,8 +5,9 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewer from 'react-native-image-zoom-viewer';
 import { WebView } from 'react-native-webview';
 import { colors } from '../../../constants/colors';
 import { typography } from '../../../constants/typography';
@@ -31,6 +32,7 @@ import {
 } from '../utils/mediaUtils';
 import { presignedUrlService } from '../../../services/api/presignedUrlService';
 import { uploadToS3, deleteLocalFile } from '../../../utils/s3Upload';
+import { pickFromGallery } from '../utils/imagePicker';
 
 const escapeHtml = (value: string) =>
   value
@@ -86,6 +88,9 @@ const CameraModal: React.FC<CameraModalProps> = ({
 
   const cameraRef = useRef<any>(null);
   const recorderRef = useRef<Recorder | null>(null);
+  // Tracks whether the currently-previewed media was picked from the gallery.
+  // Gallery files are the user's originals, so we must NOT delete them after upload.
+  const isFromGalleryRef = useRef(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
@@ -281,6 +286,8 @@ const CameraModal: React.FC<CameraModalProps> = ({
         flashMode,
       });
       console.log('[CameraModal] Photo captured:', uri);
+      // Fresh camera capture — this is a temp file we own and may delete after upload.
+      isFromGalleryRef.current = false;
       setCapturedPhotoUri(uri);
     } catch (err) {
       const cameraError = CameraError.fromUnknown(err);
@@ -324,6 +331,8 @@ const CameraModal: React.FC<CameraModalProps> = ({
         (uri: string) => {
           // Recording finished - show preview
           console.log('[CameraModal] Video recorded:', uri);
+          // Fresh recording — temp file we own and may delete after upload.
+          isFromGalleryRef.current = false;
           setIsRecording(false);
           setCapturedVideoUri(uri);
           setVideoPreviewError(null);
@@ -373,6 +382,39 @@ const CameraModal: React.FC<CameraModalProps> = ({
   const handleToggleFlash = useCallback(() => {
     setFlashMode(prev => getNextFlashMode(prev));
   }, []);
+
+  // --------------------------------------------------------------------------
+  // Gallery picker — native-camera style "open gallery" shortcut
+  // --------------------------------------------------------------------------
+
+  const handleOpenGallery = useCallback(async () => {
+    try {
+      const picked = await pickFromGallery(mode);
+      if (!picked) {
+        // User cancelled or picker unavailable — stay on the camera.
+        return;
+      }
+
+      logPreview('Picked media from gallery', { uri: picked.uri, mode });
+
+      // Mark as gallery-sourced so we don't delete the user's original on upload.
+      isFromGalleryRef.current = true;
+
+      // Route the picked URI into the existing preview → confirm → upload flow.
+      if (mode === 'photo') {
+        setCapturedPhotoUri(picked.uri);
+      } else {
+        setCapturedVideoUri(picked.uri);
+        setVideoFileError(null);
+        setIsVideoFileReady(false);
+      }
+    } catch (err) {
+      const cameraError = CameraError.fromUnknown(err);
+      setErrorMessage(cameraError.userMessage);
+      console.error('[CameraModal] Gallery pick error:', cameraError);
+      onError(cameraError);
+    }
+  }, [mode, logPreview, onError]);
 
   useEffect(() => {
     if (!visible) {
@@ -498,10 +540,14 @@ const CameraModal: React.FC<CameraModalProps> = ({
       await handle.promise;
       uploadHandleRef.current = null;
 
-      logPreview('Upload successful, deleting local file');
-
-      // Delete local file
-      await deleteLocalFile(capturedPhotoUri);
+      // Only delete files we created (camera captures). Gallery picks are the
+      // user's own originals and must be left untouched.
+      if (!isFromGalleryRef.current) {
+        logPreview('Upload successful, deleting local file');
+        await deleteLocalFile(capturedPhotoUri);
+      } else {
+        logPreview('Upload successful, keeping gallery original');
+      }
 
       logPreview('Returning S3 URL:', fileUrl);
 
@@ -573,10 +619,14 @@ const CameraModal: React.FC<CameraModalProps> = ({
       await handle.promise;
       uploadHandleRef.current = null;
 
-      logPreview('Upload successful, deleting local file');
-
-      // Delete local file
-      await deleteLocalFile(capturedVideoUri);
+      // Only delete files we created (camera recordings). Gallery picks are the
+      // user's own originals and must be left untouched.
+      if (!isFromGalleryRef.current) {
+        logPreview('Upload successful, deleting local file');
+        await deleteLocalFile(capturedVideoUri);
+      } else {
+        logPreview('Upload successful, keeping gallery original');
+      }
 
       logPreview('Returning S3 URL:', fileUrl);
 
@@ -648,13 +698,16 @@ const CameraModal: React.FC<CameraModalProps> = ({
         {/* Photo Preview Screen */}
         {capturedPhotoUri ? (
           <SafeAreaView style={styles.previewContainer} edges={['top', 'bottom']}>
-            <Image
-              source={{ uri: capturedPhotoUri }}
+            <ImageViewer
+              imageUrls={[{ url: capturedPhotoUri }]}
+              enableSwipeDown={false}
+              backgroundColor="#000"
+              renderIndicator={(() => <></>) as never}
+              saveToLocalByLongPress={false}
               style={styles.previewImage}
-              resizeMode="contain"
             />
             
-            {/* Preview Controls */}
+            {/* Preview Controls — slim horizontal buttons */}
             <View style={styles.previewControls}>
               <TouchableOpacity
                 style={styles.previewButton}
@@ -662,7 +715,6 @@ const CameraModal: React.FC<CameraModalProps> = ({
                 disabled={isUploading}
                 accessibilityLabel="Retake photo"
                 accessibilityRole="button">
-                <Text style={styles.previewButtonIcon}>↻</Text>
                 <Text style={styles.previewButtonText}>Retake</Text>
               </TouchableOpacity>
               
@@ -678,10 +730,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
                     <Text style={styles.confirmButtonText}>Uploading... {uploadProgress}%</Text>
                   </>
                 ) : (
-                  <>
-                    <Text style={styles.confirmButtonIcon}>✓</Text>
-                    <Text style={styles.confirmButtonText}>Use Photo</Text>
-                  </>
+                  <Text style={styles.confirmButtonText}>Use Photo</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -748,7 +797,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
               );
             })()}
             
-            {/* Preview Controls */}
+            {/* Preview Controls — slim horizontal buttons */}
             <View style={styles.previewControls}>
               <TouchableOpacity
                 style={styles.previewButton}
@@ -756,7 +805,6 @@ const CameraModal: React.FC<CameraModalProps> = ({
                 disabled={isUploading}
                 accessibilityLabel="Retake video"
                 accessibilityRole="button">
-                <Text style={styles.previewButtonIcon}>↻</Text>
                 <Text style={styles.previewButtonText}>Retake</Text>
               </TouchableOpacity>
               
@@ -772,10 +820,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
                     <Text style={styles.confirmButtonText}>Uploading... {uploadProgress}%</Text>
                   </>
                 ) : (
-                  <>
-                    <Text style={styles.confirmButtonIcon}>✓</Text>
-                    <Text style={styles.confirmButtonText}>Use Video</Text>
-                  </>
+                  <Text style={styles.confirmButtonText}>Use Video</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -811,6 +856,7 @@ const CameraModal: React.FC<CameraModalProps> = ({
                   onStopRecording={handleStopRecording}
                   onCancel={handleCancel}
                   onToggleFlash={handleToggleFlash}
+                  onOpenGallery={handleOpenGallery}
                 />
               </CameraPreview>
             )}
@@ -920,43 +966,36 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     backgroundColor: '#000',
+    marginBottom: vs(96),
   },
   previewControls: {
     position: 'absolute',
-    bottom: 0,
+    bottom: vs(48),
     left: 0,
     right: 0,
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 24,
-    paddingVertical: vs(32),
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: vs(16),
     backgroundColor: 'rgba(0,0,0,0.7)',
-    gap: 16,
+    gap: 12,
   },
   previewButton: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: vs(16),
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 2,
+    paddingVertical: vs(10),
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.3)',
+    gap: 6,
   },
   confirmButton: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
-  },
-  previewButtonIcon: {
-    fontSize: 28,
-    color: colors.surface,
-    marginBottom: vs(4),
-  },
-  confirmButtonIcon: {
-    fontSize: 28,
-    color: colors.surface,
-    marginBottom: vs(4),
-    fontWeight: typography.fontWeight.bold,
   },
   previewButtonText: {
     fontSize: typography.fontSize.sm,
